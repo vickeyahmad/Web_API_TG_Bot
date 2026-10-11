@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WebApiTgBot.Infrastructure.Data;
+using WebApiTgBot.Modules.Catalog.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,9 @@ else
     // We register a simple always-healthy check here.
     builder.Services.AddHealthChecks();
 }
+
+// ── Application Services ──────────────────────────────────────────────────────
+builder.Services.AddScoped<ICatalogService, CatalogService>();
 
 // ── Controllers & API ─────────────────────────────────────────────────────────
 builder.Services.AddControllers();

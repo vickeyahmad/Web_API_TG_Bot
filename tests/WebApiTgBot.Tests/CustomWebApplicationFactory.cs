@@ -16,6 +16,8 @@ namespace WebApiTgBot.Tests;
 /// </summary>
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
+    private readonly string _dbName = "TestDb_" + Guid.NewGuid().ToString("N");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // This matches the "Test" environment check in Program.cs.
@@ -25,9 +27,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             // Register AppDbContext using the InMemory provider.
-            // Each factory instance gets a unique database name so tests are isolated.
+            // All requests within this factory instance share the same test database.
             services.AddDbContext<AppDbContext>(options =>
-                options.UseInMemoryDatabase("TestDb_" + Guid.NewGuid()));
+                options.UseInMemoryDatabase(_dbName));
 
             // Add a DbContext health check using the InMemory database.
             services.AddHealthChecks()
