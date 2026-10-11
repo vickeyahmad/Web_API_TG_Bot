@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WebApiTgBot/WebApiTgBot.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WebApiTgBot.Tests/WebApiTgBot.Tests.csproj" />
+  </Folder>
+</Solution>

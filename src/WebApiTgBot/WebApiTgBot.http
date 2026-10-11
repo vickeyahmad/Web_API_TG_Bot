@@ -1,0 +1,6 @@
+@WebApiTgBot_HostAddress = http://localhost:5244
+
+GET {{WebApiTgBot_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,35 @@
+# Docker Compose configuration for local development.
+# Starts the PostgreSQL database container.
+#
+# Usage:
+#   docker compose up -d        → Start in background
+#   docker compose down         → Stop and remove containers
+#   docker compose logs -f db   → View database logs
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: webapitgbot_db
+    restart: unless-stopped
+    environment:
+      # These values are loaded from the .env file in this directory.
+      # NEVER hardcode the password here.
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # Exposes PostgreSQL on localhost:5432 only — not to the public internet.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Named volume keeps your data even when the container is restarted.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # Named volume for persistent PostgreSQL data.
+  postgres_data:
+    driver: local
