@@ -1,0 +1,26 @@
+﻿# Secret files
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/secrets/
+
+# .NET
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+
+# Node.js / Next.js
+**/node_modules/
+**/.next/
+**/dist/
+
+# Logs
+*.log
+
+# Operating system
+.DS_Store
+Thumbs.db
