@@ -1,2 +1,2 @@
 # reseller-platform
-A project for Selling - Web Application
+Central Digital Reseller Platform
