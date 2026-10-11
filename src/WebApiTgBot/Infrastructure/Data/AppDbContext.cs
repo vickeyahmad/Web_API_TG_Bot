@@ -1,15 +1,17 @@
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using WebApiTgBot.Modules.Catalog.Models;
+using WebApiTgBot.Modules.Identity.Models;
 
 namespace WebApiTgBot.Infrastructure.Data;
 
 /// <summary>
 /// The central database context for the application.
-/// All database tables are registered here.
-/// Modules add their entities via the OnModelCreating method
-/// or via separate IEntityTypeConfiguration classes.
+/// Inherits from IdentityDbContext to provide central authentication and authorization
+/// tables for both administrators and future customers.
+/// Modules add their entities via DbSet properties and IEntityTypeConfiguration classes.
 /// </summary>
-public class AppDbContext : DbContext
+public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -25,7 +27,8 @@ public class AppDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         // Apply all entity configurations from this assembly automatically.
-        // When new modules add entity configurations, they are picked up here.
+        // This picks up CategoryConfiguration, ProductConfiguration, VendorConfiguration,
+        // VendorProductConfiguration, and ApplicationUserConfiguration.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
     }
 }
