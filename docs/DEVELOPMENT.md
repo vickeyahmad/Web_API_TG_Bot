@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 2B-2B — Secure Vendor Management & Mapping ✅ COMPLETE
+## Current Phase: Milestone 3A — Central Order System Foundation ✅ COMPLETE
 
 ---
 
@@ -109,6 +109,27 @@
 - **Automated Tests**:
   - 56 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor & PostgreSQL constraint test).
 
+### Milestone 3A — Central Order System Foundation
+- **Domain Models & Enums**:
+  - `Order` (`Id`, `OrderNumber`, `CustomerId`, `Status`, `Currency`, `Subtotal`, `TotalAmount`, `SalesChannel`, `CustomerNotes`, `CreatedAt`, `UpdatedAt`).
+  - `OrderItem` (`Id`, `OrderId`, `ProductId`, `ProductSkuSnapshot`, `ProductNameSnapshot`, `Quantity`, `UnitPriceSnapshot`, `Currency`, `TotalPrice`).
+  - `OrderStatusHistory` (`Id`, `OrderId`, `PreviousStatus`, `NewStatus`, `Reason`, `ChangedByUserId`, `ChangedAt`).
+  - `OrderStatus` (11 strongly typed states: `PendingPayment`, `Paid`, `Processing`, `SentToVendor`, `VendorProcessing`, `Completed`, `PartiallyCompleted`, `Failed`, `Cancelled`, `RefundPending`, `Refunded`).
+  - `SalesChannel` (`Website`, `Telegram`, `Smm`, `Admin`).
+- **Architectural & Financial Rules Enforced**:
+  - **Shared Central Architecture**: All sales channels will share a single order database and numbering system.
+  - **Immutable Customer Price Snapshots**: Line items capture product SKU, product name, and unit selling price at checkout time. Subsequent updates to product price or name in the catalog never alter historical orders.
+  - **Controlled State Transitions**: `OrderStatusTransitions` state machine enforces valid lifecycle flows and guards terminal states (`Cancelled`, `Refunded`).
+  - **Mandatory Audit Logging**: `OrderStatusHistory` records every status transition with previous status, new status, timestamps, and initiator.
+  - **Standardized Unique Order Numbers**: `IOrderNumberGenerator` produces collision-resistant order numbers (e.g. `ORD-20261013-ABC123`).
+  - **Centralized Customer Identity**: Orders link directly to `ApplicationUser` (`CustomerId`), ensuring customers and administrators share one central identity foundation.
+  - **Relational Integrity & Non-Destructive Referentials**: Unique index on `OrderNumber`, foreign keys with `DeleteBehavior.Restrict` on `Order -> OrderItems`, `Order -> OrderStatusHistory`, `Order -> Customer`, and `OrderItem -> Product`. Destructive cascade deletes are prohibited so orders and their audit trails cannot be accidentally wiped out. Decimal money precision `decimal(18,4)` enforced across all financial amounts.
+- **Database Migrations**:
+  - `20261012205237_AddCentralOrderSystem` created and applied to live PostgreSQL database.
+  - `20261012210921_RestrictOrderCascadeDelete` created and applied to live PostgreSQL database (replaces CASCADE with RESTRICT on `OrderItems` and `OrderStatusHistory`).
+- **Automated Tests**:
+  - 75 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System & PostgreSQL constraint tests).
+
 ---
 
 ## Test Results
@@ -116,9 +137,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (56 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor) |
+| `dotnet test` (75 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System) |
 | Docker PostgreSQL | ✅ Running and healthy on `localhost:5432` |
-| Database migrations applied | ✅ Schema up-to-date (no pending model changes) |
+| Database migrations applied | ✅ `AddCentralOrderSystem` & `RestrictOrderCascadeDelete` applied to PostgreSQL |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -128,11 +149,14 @@
 | `POST /api/admin/products` | ✅ 201 Created / 409 Conflict (dup SKU) / 400 (invalid price or category) |
 | `GET /api/admin/vendors` | ✅ 200 OK (paged, search + filter) / 401 Unauthorized |
 | `POST /api/admin/vendors` | ✅ 201 Created / 409 Conflict (dup name) / 400 (no CSRF) |
-| `PATCH /api/admin/vendors/{id}/status` | ✅ 200 OK (toggles active, preserves mappings) |
 | `GET /api/admin/vendor-products` | ✅ 200 OK (multi-criteria filtering & pagination) |
 | `POST /api/admin/vendor-products` | ✅ 201 Created / 409 Conflict (dup mapping) / 400 (invalid vendor/product/cost) |
-| Multi-currency handling | ✅ PKR, USD, and USDT purchase costs supported |
-| PostgreSQL constraints | ✅ Verified unique composite index `IX_VendorProducts_VendorId_ProductId` (error 23505) and FKs |
+| Order price snapshots | ✅ Unchanged after catalog product price updates |
+| Controlled order transitions | ✅ Enforced via OrderStatusTransitions |
+| Unique order numbers | ✅ Verified in memory & PostgreSQL unique index `IX_Orders_OrderNumber` (error 23505) |
+| Non-destructive order deletion | ✅ Verified `DeleteBehavior.Restrict` rejects deleting orders with items or history (EF Core & PostgreSQL error 23503) |
+| Multi-currency handling | ✅ PKR default selling currency, USD/USDT supplier costs preserved |
+| PostgreSQL constraints | ✅ Verified foreign keys and non-destructive delete rules on live PostgreSQL |
 | Supplier isolation | ✅ 100% hidden from public catalog responses |
 | `/swagger` UI | ✅ Available in Development |
 
@@ -140,7 +164,8 @@
 
 ## Next Milestone
 
-- **Milestone 3A**: Customer Identity & Authentication (customer registration, login, profile management, and role-based boundaries on the centralized identity store).
+- **Milestone 3B**: Customer Identity & Authentication (customer registration, login, profile management, and customer role permissions on the centralized identity store).
+
 
 
 

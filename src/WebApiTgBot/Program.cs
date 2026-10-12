@@ -8,6 +8,7 @@ using WebApiTgBot.Infrastructure.Data;
 using WebApiTgBot.Modules.Catalog.Services;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Identity.Services;
+using WebApiTgBot.Modules.Orders.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -174,6 +175,8 @@ builder.Services.AddScoped<IAdminCatalogService, AdminCatalogService>();
 builder.Services.AddScoped<IAdminVendorService, AdminVendorService>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IAdminSeeder, AdminSeeder>();
+builder.Services.AddSingleton<IOrderNumberGenerator, OrderNumberGenerator>();
+
 
 
 

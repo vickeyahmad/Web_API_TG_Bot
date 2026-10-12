@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using WebApiTgBot.Modules.Catalog.Models;
 using WebApiTgBot.Modules.Identity.Models;
+using WebApiTgBot.Modules.Orders.Models;
 
 namespace WebApiTgBot.Infrastructure.Data;
 
@@ -21,6 +22,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Vendor> Vendors => Set<Vendor>();
     public DbSet<VendorProduct> VendorProducts => Set<VendorProduct>();
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
