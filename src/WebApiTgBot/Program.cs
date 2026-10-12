@@ -171,8 +171,10 @@ builder.Services.AddCors(options =>
 // ── Application Services ──────────────────────────────────────────────────────
 builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<IAdminCatalogService, AdminCatalogService>();
+builder.Services.AddScoped<IAdminVendorService, AdminVendorService>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IAdminSeeder, AdminSeeder>();
+
 
 
 // ── Controllers & Centralized CSRF Protection ────────────────────────────────

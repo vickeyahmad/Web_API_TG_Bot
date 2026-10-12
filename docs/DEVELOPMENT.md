@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 2B-2A — Secure Admin Catalog Management ✅ COMPLETE
+## Current Phase: Milestone 2B-2B — Secure Vendor Management & Mapping ✅ COMPLETE
 
 ---
 
@@ -87,6 +87,28 @@
 - **Automated Tests**:
   - 41 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog Management).
 
+### Milestone 2B-2B — Secure Vendor Management & Mapping
+- **Admin Vendor Management Endpoints**:
+  - `GET /api/admin/vendors` — search and paginate vendors; filter by active status (`?search=...`, `?isActive=...`, `?page=...`).
+  - `GET /api/admin/vendors/{id}` — retrieve vendor details and product mapping counts.
+  - `POST /api/admin/vendors` — create new vendor with unique internal name validation.
+  - `PUT /api/admin/vendors/{id}` — edit vendor internal name and status with collision checks.
+  - `PATCH /api/admin/vendors/{id}/status` — soft enable/disable vendor; preserves existing product mappings.
+- **Admin Vendor Product Mapping Endpoints**:
+  - `GET /api/admin/vendor-products` — filter and paginate mappings by vendor, product, SKU, availability, and currency.
+  - `GET /api/admin/vendor-products/{id}` — retrieve single mapping with vendor and product details.
+  - `POST /api/admin/vendor-products` — map vendor to product with referential validation, duplicate key prevention `(VendorId, ProductId)`, non-negative cost, and currency validation (PKR, USD, USDT).
+  - `PUT /api/admin/vendor-products/{id}` — edit external product ID, cost, currency, availability, and routing priority.
+  - `PATCH /api/admin/vendor-products/{id}/availability` — toggle mapping availability.
+- **Architectural & Security Rules Enforced**:
+  - All vendor endpoints require `[Authorize(Roles = AppRoles.Admin)]` and global Antiforgery / CSRF tokens.
+  - Supplier isolation: vendor names, costs, currencies, and external product IDs are strictly excluded from public customer APIs.
+  - Multi-currency readiness: costs stored with `decimal(18,4)` precision; distinct currencies (PKR, USD, USDT) preserved without unsafe cross-currency arithmetic.
+  - Database constraint enforcement: unique composite key `(VendorId, ProductId)` and foreign keys verified against both in-memory and PostgreSQL providers.
+  - Non-destructive lifecycle: permanent deletion is disabled.
+- **Automated Tests**:
+  - 56 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor & PostgreSQL constraint test).
+
 ---
 
 ## Test Results
@@ -94,28 +116,32 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (41 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog) |
+| `dotnet test` (56 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor) |
 | Docker PostgreSQL | ✅ Running and healthy on `localhost:5432` |
 | Database migrations applied | ✅ Schema up-to-date (no pending model changes) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
-| `GET /api/products` | ✅ 200 OK (public active only) |
+| `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
 | `GET /api/admin/categories` | ✅ 200 OK (admin authenticated) / 401 Unauthorized (anon) |
 | `POST /api/admin/categories` | ✅ 201 Created (valid) / 409 Conflict (dup slug) / 400 (no CSRF) |
-| `PUT /api/admin/categories/{id}` | ✅ 200 OK / 409 Conflict (collision) / 404 Not Found |
-| `PATCH /api/admin/categories/{id}/status` | ✅ 200 OK (toggles active) |
 | `GET /api/admin/products` | ✅ 200 OK (paged, active + inactive) / 401 Unauthorized |
 | `POST /api/admin/products` | ✅ 201 Created / 409 Conflict (dup SKU) / 400 (invalid price or category) |
-| `PUT /api/admin/products/{id}` | ✅ 200 OK (immutable SKU preserved) |
-| `PATCH /api/admin/products/{id}/status` | ✅ 200 OK (toggles active) |
-| Inactive products hidden from public | ✅ 404 Not Found on disabled product / disabled category |
+| `GET /api/admin/vendors` | ✅ 200 OK (paged, search + filter) / 401 Unauthorized |
+| `POST /api/admin/vendors` | ✅ 201 Created / 409 Conflict (dup name) / 400 (no CSRF) |
+| `PATCH /api/admin/vendors/{id}/status` | ✅ 200 OK (toggles active, preserves mappings) |
+| `GET /api/admin/vendor-products` | ✅ 200 OK (multi-criteria filtering & pagination) |
+| `POST /api/admin/vendor-products` | ✅ 201 Created / 409 Conflict (dup mapping) / 400 (invalid vendor/product/cost) |
+| Multi-currency handling | ✅ PKR, USD, and USDT purchase costs supported |
+| PostgreSQL constraints | ✅ Verified unique composite index `IX_VendorProducts_VendorId_ProductId` (error 23505) and FKs |
+| Supplier isolation | ✅ 100% hidden from public catalog responses |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 2B-2B**: Admin Vendor Management & Vendor-Product Mapping (secure admin endpoints to manage vendors, vendor products, multi-currency costs, priority routing, and margin calculations without exposing vendor credentials).
+- **Milestone 3A**: Customer Identity & Authentication (customer registration, login, profile management, and role-based boundaries on the centralized identity store).
+
 
 
 ---

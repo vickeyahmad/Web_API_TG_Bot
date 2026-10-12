@@ -23,5 +23,8 @@
 21. Centralized CSRF enforcement: Globally registered `AutoValidateAntiforgeryTokenAttribute` via `AddControllersWithViews` in `Program.cs`. All state-changing endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) across all current and future controllers automatically require valid antiforgery tokens unless explicitly exempted with `[IgnoreAntiforgeryToken]`.
 22. Admin Catalog Management & SKU Immutability: Dedicated `AdminCategoriesController` and `AdminProductsController` powered by `IAdminCatalogService`. To ensure referential stability and protect downstream orders/vendor mappings, product `InternalSku` is strictly immutable after creation.
 23. Non-Destructive Catalog Lifecycle: Permanent deletion of categories and products is disallowed. Inactive states are toggled via dedicated `PATCH .../status` endpoints. Disabling a category automatically hides all its products from public customer-facing APIs without deleting records.
+24. Admin Vendor Management & Multi-Currency Costs: Dedicated `AdminVendorsController` and `AdminVendorProductsController` powered by `IAdminVendorService`. Suppliers and costs remain completely decoupled from customer selling prices, and multi-currency supplier costs (PKR, USD, USDT) are preserved with decimal(18,4) precision without premature automatic conversions.
+25. Relational Integrity & Non-Destructive Vendor Mappings: Vendor-to-product mappings enforce unique composite constraint `(VendorId, ProductId)` and foreign key referential integrity at both the application and PostgreSQL database level. Soft status toggling of vendors leaves existing mappings intact, and permanent deletion of vendor records is prohibited.
+
 
 
