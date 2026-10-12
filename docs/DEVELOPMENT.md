@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 3A — Central Order System Foundation ✅ COMPLETE
+## Current Phase: Milestone 3B — Customer Registration & Authentication ✅ COMPLETE
 
 ---
 
@@ -130,6 +130,34 @@
 - **Automated Tests**:
   - 75 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System & PostgreSQL constraint tests).
 
+### Milestone 3B — Customer Registration & Authentication
+- **Central Identity Architecture**:
+  - Unified single identity store across all future sales channels (tools.gogaabyte.com, smm.gogaabyte.com, Telegram bot) sharing `ApplicationUser` and `ApplicationRole`.
+  - Customer profile foundation: `Id`, `FullName`, `Email`, `IsActive`, `EmailConfirmed`, `CreatedAt`, and `Roles`.
+- **Strict Role & Session Segregation**:
+  - Customer self-registration strictly assigns `AppRoles.Customer` server-side. Clients cannot supply role claims; privilege escalation to `Admin` is prohibited.
+  - Dedicated authentication scheme `AuthSchemes.CustomerScheme` with HTTP-only cookie `.WebAPI.Customer.Auth`.
+  - Customers cannot access any `/api/admin/*` endpoints (returns 401/403).
+  - Admin and Customer sessions run on independent cookie schemes and cannot be confused or cross-pollinated.
+- **Security & Account Protection**:
+  - Normalized email indexing and duplicate registration rejection (409 Conflict).
+  - ASP.NET Core Identity password policy enforcement (minimum 8 chars, uppercase, lowercase, digit, non-alphanumeric).
+  - Account lockout protection (5 failed attempts -> 15-minute lockout).
+  - Fixed-window rate limiting on registration and login endpoints via `CustomerAuthLimiter`.
+  - Instantaneous session revocation on deactivation: `OnValidatePrincipal` checks `user.IsActive` and role on every request.
+  - Cross-subdomain Antiforgery / CSRF protection: `GET /api/customer/auth/csrf` issues non-cacheable JSON tokens bound to the authenticated customer session for `tools.gogaabyte.com` and `smm.gogaabyte.com`.
+  - Safe DTO serialization: Password hashes, security stamps, and backend internals are strictly excluded from all customer responses.
+- **Customer API Endpoints**:
+  - `POST /api/customer/auth/register` (201 Created on success, 409 Conflict on duplicate, 400 Bad Request on validation errors)
+  - `POST /api/customer/auth/login` (200 OK with `.WebAPI.Customer.Auth` cookie, 401 on bad credentials, 403 on disabled, 423 on lockout)
+  - `POST /api/customer/auth/logout` (200 OK; terminates cookie session; enforces CSRF)
+  - `GET /api/customer/auth/me` (200 OK; returns safe `CustomerUserDto`)
+  - `GET /api/customer/auth/csrf` (200 OK; returns request token for browser clients)
+- **Database Status**:
+  - Reused existing Identity schema; 0 migrations needed. All existing data 100% intact.
+- **Automated Tests**:
+  - 95 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth & PostgreSQL integration tests).
+
 ---
 
 ## Test Results
@@ -137,13 +165,13 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (75 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System) |
+| `dotnet test` (95 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth) |
 | Docker PostgreSQL | ✅ Running and healthy on `localhost:5432` |
-| Database migrations applied | ✅ `AddCentralOrderSystem` & `RestrictOrderCascadeDelete` applied to PostgreSQL |
+| Database migrations applied | ✅ Up to date (`AddCentralOrderSystem` & `RestrictOrderCascadeDelete`) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
-| `GET /api/admin/categories` | ✅ 200 OK (admin authenticated) / 401 Unauthorized (anon) |
+| `GET /api/admin/categories` | ✅ 200 OK (admin authenticated) / 401 Unauthorized (anon & customer) |
 | `POST /api/admin/categories` | ✅ 201 Created (valid) / 409 Conflict (dup slug) / 400 (no CSRF) |
 | `GET /api/admin/products` | ✅ 200 OK (paged, active + inactive) / 401 Unauthorized |
 | `POST /api/admin/products` | ✅ 201 Created / 409 Conflict (dup SKU) / 400 (invalid price or category) |
@@ -151,20 +179,26 @@
 | `POST /api/admin/vendors` | ✅ 201 Created / 409 Conflict (dup name) / 400 (no CSRF) |
 | `GET /api/admin/vendor-products` | ✅ 200 OK (multi-criteria filtering & pagination) |
 | `POST /api/admin/vendor-products` | ✅ 201 Created / 409 Conflict (dup mapping) / 400 (invalid vendor/product/cost) |
+| Customer registration | ✅ 201 Created / 409 Conflict (duplicate email) / 400 (weak password) |
+| Customer role assignment | ✅ Strictly server-side `Customer` role; no Admin elevation |
+| Customer login / logout | ✅ 200 OK (issues `.WebAPI.Customer.Auth`) / 401 (bad creds) / 403 (deactivated) |
+| Customer /me profile | ✅ 200 OK with safe `CustomerUserDto`; zero credential leakage |
+| Role & session separation | ✅ Customers strictly rejected from `/api/admin/*` endpoints (401/403) |
+| CSRF & Cross-subdomain | ✅ Non-cacheable JSON CSRF token delivery, HttpOnly cookies, 400 without token |
+| Rate limiting | ✅ Fixed-window rate limiting applied via `CustomerAuthLimiter` and `AdminAuthLimiter` |
 | Order price snapshots | ✅ Unchanged after catalog product price updates |
 | Controlled order transitions | ✅ Enforced via OrderStatusTransitions |
 | Unique order numbers | ✅ Verified in memory & PostgreSQL unique index `IX_Orders_OrderNumber` (error 23505) |
-| Non-destructive order deletion | ✅ Verified `DeleteBehavior.Restrict` rejects deleting orders with items or history (EF Core & PostgreSQL error 23503) |
-| Multi-currency handling | ✅ PKR default selling currency, USD/USDT supplier costs preserved |
-| PostgreSQL constraints | ✅ Verified foreign keys and non-destructive delete rules on live PostgreSQL |
-| Supplier isolation | ✅ 100% hidden from public catalog responses |
+| Non-destructive order deletion | ✅ Verified `DeleteBehavior.Restrict` rejects deleting orders with items or history (error 23503) |
+| PostgreSQL constraints | ✅ Verified foreign keys, unique indexes, and role mappings on live PostgreSQL |
+| Supplier isolation | ✅ 100% hidden from public catalog and customer responses |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 3B**: Customer Identity & Authentication (customer registration, login, profile management, and customer role permissions on the centralized identity store).
+- **Milestone 4A**: Customer Checkout & Central Order Placement (public checkout APIs allowing authenticated customers to create orders with immutable line item price snapshots, status history audit logging, and manual payment verification flows).
 
 
 

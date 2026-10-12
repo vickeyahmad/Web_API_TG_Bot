@@ -125,11 +125,74 @@ builder.Services.ConfigureApplicationCookie(options =>
     };
 });
 
+// Dedicated Customer Authentication Cookie Scheme (.WebAPI.Customer.Auth)
+// Strictly isolated from administrator sessions at the cookie and handler level.
+builder.Services.AddAuthentication()
+    .AddCookie(AuthSchemes.CustomerScheme, options =>
+    {
+        options.Cookie.Name = ".WebAPI.Customer.Auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = builder.Environment.IsProduction()
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+
+        // In a Web API, return 401 Unauthorized / 403 Forbidden instead of HTTP 302 redirects
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
+
+        // Preserves built-in Identity security stamp validation AND enforces immediate active/customer checks
+        options.Events.OnValidatePrincipal = async context =>
+        {
+            // 1. Invoke built-in Identity security stamp validation first
+            await SecurityStampValidator.ValidatePrincipalAsync(context);
+
+            if (context.Principal == null || context.Principal.Identity?.IsAuthenticated != true)
+            {
+                return;
+            }
+
+            // 2. Perform immediate active status and Customer role verification on every request
+            var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.GetUserAsync(context.Principal);
+            if (user == null || !user.IsActive)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(AuthSchemes.CustomerScheme);
+                return;
+            }
+
+            var isCustomer = await userManager.IsInRoleAsync(user, AppRoles.Customer);
+            if (!isCustomer)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(AuthSchemes.CustomerScheme);
+                return;
+            }
+        };
+    });
+
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 var permitLimit = builder.Environment.IsEnvironment("Test") ? 1000 : 10;
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("AdminAuthLimiter", opt =>
+    {
+        opt.PermitLimit = permitLimit;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+    options.AddFixedWindowLimiter("CustomerAuthLimiter", opt =>
     {
         opt.PermitLimit = permitLimit;
         opt.Window = TimeSpan.FromMinutes(1);
@@ -151,12 +214,12 @@ builder.Services.AddAntiforgery(options =>
 });
 
 // ── CORS Policy ───────────────────────────────────────────────────────────────
-// Restrictive policy for future admin frontend (e.g. admin.gogaabyte.com).
+// Restrictive policy for future frontends (admin.gogaabyte.com, tools.gogaabyte.com, smm.gogaabyte.com).
 // Arbitrary origins or wildcards with credentials are strictly forbidden.
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? (builder.Environment.IsDevelopment()
-        ? new[] { "http://localhost:3000", "https://localhost:3000" }
-        : new[] { "https://admin.gogaabyte.com", "https://api.gogaabyte.com" });
+        ? new[] { "http://localhost:3000", "https://localhost:3000", "http://localhost:3001", "https://localhost:3001" }
+        : new[] { "https://admin.gogaabyte.com", "https://tools.gogaabyte.com", "https://smm.gogaabyte.com", "https://api.gogaabyte.com" });
 
 builder.Services.AddCors(options =>
 {
@@ -174,6 +237,7 @@ builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<IAdminCatalogService, AdminCatalogService>();
 builder.Services.AddScoped<IAdminVendorService, AdminVendorService>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
+builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
 builder.Services.AddScoped<IAdminSeeder, AdminSeeder>();
 builder.Services.AddSingleton<IOrderNumberGenerator, OrderNumberGenerator>();
 
