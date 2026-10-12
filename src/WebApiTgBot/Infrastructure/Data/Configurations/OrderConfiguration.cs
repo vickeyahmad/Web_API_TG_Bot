@@ -58,11 +58,20 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.CustomerNotes)
             .HasMaxLength(2000);
 
+        builder.Property(o => o.IdempotencyKey)
+            .HasMaxLength(100);
+
         builder.Property(o => o.CreatedAt)
             .IsRequired();
 
         builder.Property(o => o.UpdatedAt)
             .IsRequired();
+
+        // Enforce durable idempotency scoped to the customer when provided
+        builder.HasIndex(o => new { o.CustomerId, o.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("\"IdempotencyKey\" IS NOT NULL")
+            .HasDatabaseName("IX_Orders_CustomerId_IdempotencyKey");
 
         // FK: Customer (ApplicationUser) — Restrict delete to preserve order history
         builder.HasOne(o => o.Customer)

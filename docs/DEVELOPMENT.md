@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 3B — Customer Registration & Authentication ✅ COMPLETE
+## Current Phase: Milestone 3C — Customer Order Placement & Tracking ✅ COMPLETE
 
 ---
 
@@ -158,6 +158,39 @@
 - **Automated Tests**:
   - 95 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth & PostgreSQL integration tests).
 
+### Milestone 3C — Customer Order Placement & Tracking
+- **Centralized Customer Order Creation Flow**:
+  - Authenticated customer order placement for AI Tools products via `POST /api/customer/orders`.
+  - Orders start deterministically in `PendingPayment` status (`PaymentStatus.Unpaid`, `FulfillmentStatus.Unfulfilled`).
+  - Strict server-side security:
+    - Customer identity resolved exclusively from `ClaimsPrincipal` (`User.FindFirstValue(ClaimTypes.NameIdentifier)`). Client cannot supply or override `CustomerId`.
+    - `SalesChannel` assigned server-side (`SalesChannel.Website`).
+    - Pricing resolved directly from live PostgreSQL database (`Product.SellingPrice`). Client prices are never accepted.
+    - Product active validation: Rejects non-existent, inactive, zero-priced, or products whose category is disabled.
+    - Multi-currency guard: Strict enforcement of single-currency `PKR` for digital subscriptions in current phase.
+    - Fixed quantity = 1 for AI tool subscription products.
+- **Durable Idempotency & Concurrency Protection**:
+  - Client supplies `X-Idempotency-Key` via HTTP header or payload (`IdempotencyKey` field, max 100 characters).
+  - Stored in `Order.IdempotencyKey` protected by PostgreSQL filtered unique constraint index: `IX_Orders_CustomerId_IdempotencyKey` (`"IdempotencyKey" IS NOT NULL`).
+  - Re-submitting an identical order with the same key returns the existing order safely (201 Created) without double-billing or duplicate records.
+  - Re-submitting the same key with different order details (e.g. different SKU) is rejected with `409 Conflict`.
+  - Database-level race-condition defense: Catches PostgreSQL unique violation error code `23505` if duplicate requests arrive concurrently, safely recovering and returning the winning order.
+- **Collision-Resistant Order Numbers**:
+  - Order numbers formatted as `ORD-YYYYMMDD-XXXXXX` (e.g., `ORD-20261012-A1B2C3`).
+  - Bounded 3x collision retry loop inside relational database transaction guarantees uniqueness even during high concurrent traffic.
+- **Customer Order Listing & Order Tracking**:
+  - `GET /api/customer/orders`: Paginated list of customer orders with optional status filter (`Page`, `PageSize`, `Status`).
+  - `GET /api/customer/orders/{orderNumber}`: Complete order tracking detail including order summary, line item snapshot, and public status history.
+- **Strict Customer Isolation & Anti-Enumeration**:
+  - Customers can only see and access their own orders.
+  - Accessing an order number belonging to another customer returns `404 Not Found` (never `403 Forbidden`), completely preventing order enumeration and data leakage.
+- **Complete Supplier Privacy**:
+  - Customer order DTOs (`CustomerOrderSummaryDto`, `CustomerOrderDetailDto`, `CustomerOrderItemDto`) strictly exclude `VendorId`, `VendorProductId`, `SupplierCost`, and vendor notes.
+- **Database Migration**:
+  - Migration `20261012220129_AddOrderPlacementAndIdempotency` applied to PostgreSQL. Added `IdempotencyKey` column to `Orders` and created filtered unique index `IX_Orders_CustomerId_IdempotencyKey`.
+- **Automated Tests**:
+  - 112 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order, Concurrency & PostgreSQL constraint tests).
+
 ---
 
 ## Test Results
@@ -165,9 +198,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (95 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth) |
+| `dotnet test` (112 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order) |
 | Docker PostgreSQL | ✅ Running and healthy on `localhost:5432` |
-| Database migrations applied | ✅ Up to date (`AddCentralOrderSystem` & `RestrictOrderCascadeDelete`) |
+| Database migrations applied | ✅ Up to date (`AddOrderPlacementAndIdempotency` verified) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -184,21 +217,23 @@
 | Customer login / logout | ✅ 200 OK (issues `.WebAPI.Customer.Auth`) / 401 (bad creds) / 403 (deactivated) |
 | Customer /me profile | ✅ 200 OK with safe `CustomerUserDto`; zero credential leakage |
 | Role & session separation | ✅ Customers strictly rejected from `/api/admin/*` endpoints (401/403) |
-| CSRF & Cross-subdomain | ✅ Non-cacheable JSON CSRF token delivery, HttpOnly cookies, 400 without token |
-| Rate limiting | ✅ Fixed-window rate limiting applied via `CustomerAuthLimiter` and `AdminAuthLimiter` |
-| Order price snapshots | ✅ Unchanged after catalog product price updates |
-| Controlled order transitions | ✅ Enforced via OrderStatusTransitions |
-| Unique order numbers | ✅ Verified in memory & PostgreSQL unique index `IX_Orders_OrderNumber` (error 23505) |
-| Non-destructive order deletion | ✅ Verified `DeleteBehavior.Restrict` rejects deleting orders with items or history (error 23503) |
-| PostgreSQL constraints | ✅ Verified foreign keys, unique indexes, and role mappings on live PostgreSQL |
-| Supplier isolation | ✅ 100% hidden from public catalog and customer responses |
+| Customer order creation | ✅ 201 Created with server-side pricing & initial `PendingPayment` state |
+| Server-side pricing enforcement | ✅ Pricing resolved directly from DB; client prices never accepted |
+| Catalog state guards | ✅ Inactive products & disabled categories rejected (400 Bad Request) |
+| Durable idempotency | ✅ Identical key returns existing order; mismatched key returns 409 Conflict |
+| PostgreSQL idempotency constraint | ✅ Filtered unique index `IX_Orders_CustomerId_IdempotencyKey` prevents duplicate inserts (error 23505) |
+| Customer order listing | ✅ 200 OK with pagination & optional status filter |
+| Customer order isolation | ✅ Other customers' orders return 404 Not Found; zero cross-customer data leakage |
+| Price snapshot immutability | ✅ Past order line item price snapshots remain unchanged after catalog price updates |
+| Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
+| Supplier privacy | ✅ 100% hidden from customer order endpoints and responses |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 4A**: Customer Checkout & Central Order Placement (public checkout APIs allowing authenticated customers to create orders with immutable line item price snapshots, status history audit logging, and manual payment verification flows).
+- **Milestone 4A**: Customer Checkout & Payment System Foundation (payment receipt upload, manual payment verification flow, customer PKR wallet ledger foundation).
 
 
 

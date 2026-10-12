@@ -449,6 +449,10 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("OrderNumber")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -480,6 +484,11 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.HasIndex("OrderNumber")
                         .IsUnique()
                         .HasDatabaseName("IX_Orders_OrderNumber");
+
+                    b.HasIndex("CustomerId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Orders_CustomerId_IdempotencyKey")
+                        .HasFilter("\"IdempotencyKey\" IS NOT NULL");
 
                     b.HasIndex("CustomerId", "Status")
                         .HasDatabaseName("IX_Orders_CustomerId_Status");

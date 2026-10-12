@@ -55,6 +55,13 @@ public class Order
     /// </summary>
     public string? CustomerNotes { get; set; }
 
+    /// <summary>
+    /// Client-supplied idempotency key used to prevent duplicate order submissions
+    /// from double-clicks, network retries, or lost responses.
+    /// Scoped to CustomerId and enforced unique in the database.
+    /// </summary>
+    public string? IdempotencyKey { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

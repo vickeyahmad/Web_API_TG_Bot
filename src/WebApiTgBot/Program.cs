@@ -198,6 +198,12 @@ builder.Services.AddRateLimiter(options =>
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueLimit = 0;
     });
+    options.AddFixedWindowLimiter("CustomerOrderLimiter", opt =>
+    {
+        opt.PermitLimit = permitLimit;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -238,6 +244,7 @@ builder.Services.AddScoped<IAdminCatalogService, AdminCatalogService>();
 builder.Services.AddScoped<IAdminVendorService, AdminVendorService>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
+builder.Services.AddScoped<ICustomerOrderService, CustomerOrderService>();
 builder.Services.AddScoped<IAdminSeeder, AdminSeeder>();
 builder.Services.AddSingleton<IOrderNumberGenerator, OrderNumberGenerator>();
 
