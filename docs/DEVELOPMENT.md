@@ -288,6 +288,36 @@
 - **Automated Tests**:
   - 164 total tests passing (148 existing + 16 new Milestone 4C Integration, Concurrency & PostgreSQL constraint tests, 0 failed, 0 skipped).
 
+### Milestone 4D — Customer Wallet Purchases & Central Order Payment Processing
+- **Customer Wallet Purchase Flow (`POST /api/customer/orders/{orderNumber}/pay-with-wallet`)**:
+  - Authenticated customer initiates instant order payment using available PKR wallet balance.
+  - Rate-limited via `CustomerOrderLimiter` with anti-forgery validation (`AutoValidateAntiforgeryToken`).
+  - Feature gated via `WalletPurchaseOptions.Enabled = false` (returns `403 Forbidden` with informative message when disabled).
+  - Validates order ownership (returns `404 Not Found` if order belongs to another customer or does not exist).
+  - Validates order status: Requires `OrderStatus.PendingPayment` and `PaymentStatus.Unpaid`. Already paid, cancelled, or processing orders are rejected (`409 Conflict`).
+  - Validates order amount: Enforces `TotalAmount > 0` and currency `PKR`.
+- **Single Atomic PostgreSQL Transaction & Invariant Concurrency Lock Ordering**:
+  - Coordinates Orders, Payments, and Wallets within one atomic database transaction (`BeginTransactionAsync`).
+  - Acquires pessimistic row locks in strict invariant global sequence:
+    1. Order locked first: `SELECT ... FROM "Orders" WHERE "OrderNumber" = @p FOR UPDATE`.
+    2. Wallet locked second inside `IWalletService.DebitAsync`: `SELECT ... FROM "Wallets" WHERE "Id" = @id FOR UPDATE`.
+  - Invariant locking order completely eliminates deadlock conditions between concurrent customer actions.
+- **Durable Debit Idempotency & Replay Safety**:
+  - Wallet debited using stable operation key `WALLET_ORDER:{order.Id}` and source `WalletTransactionSource.OrderPayment`.
+  - Replaying payment with the same idempotency key (`X-Idempotency-Key`) returns the original payment confirmation (`200 OK`) without double-debiting.
+  - Reusing the same idempotency key across different orders returns `409 Conflict`.
+- **Database Engine Double-Payment Guard**:
+  - Added PostgreSQL partial unique index `IX_Payments_Paid_OrderId` (`WHERE "Status" = 'Paid' AND "OrderId" IS NOT NULL`), guaranteeing at the database engine level that no order can ever have more than one `Paid` payment record.
+  - State transitions: Creates `Payment` record in `Paid` status (`Purpose = OrderPurchase`, `PaymentMethodCode = WALLET`), appends `PaymentStatusHistory`, transitions order to `OrderStatus.Paid` and `PaymentStatus.Paid`, and appends `OrderStatusHistory`.
+  - Clean Rollback: If wallet balance is insufficient, or any step fails, the entire transaction rolls back cleanly with 0 wallet balance change, 0 payment record, and 0 order status change.
+- **Read-Only Customer Wallet Endpoints**:
+  - `GET /api/customer/wallet`: Returns customer's wallet balance, currency (`PKR`), and active status.
+  - `GET /api/customer/wallet/transactions`: Returns paginated, chronological wallet ledger history (`Page`, `PageSize`) with running balance snapshots.
+- **Database Migration**:
+  - Migration `20261013203158_AddUniquePaidOrderPaymentIndex` created and applied to both `webapitgbot_dev` and `webapitgbot_test`.
+- **Automated Tests**:
+  - 184 total tests passing (167 existing + 17 Milestone 4D Customer Wallet Order Payment & Financial Verification tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -295,9 +325,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (167 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Financial Verification) |
-| Docker PostgreSQL | ✅ Migration `ScopeVerifiedPaymentReferenceToReceivingAccount` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
-| Database migrations applied | ✅ Up to date (`ScopeVerifiedPaymentReferenceToReceivingAccount` applied across development and test databases) |
+| `dotnet test` (184 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification) |
+| Docker PostgreSQL | ✅ Migration `AddUniquePaidOrderPaymentIndex` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
+| Database migrations applied | ✅ Up to date (`AddUniquePaidOrderPaymentIndex` applied across development and test databases) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -335,7 +365,7 @@
 | Wallet atomic mutation & lock | ✅ `SELECT ... FOR UPDATE` row locking prevents lost updates and concurrent overspending |
 | Permanent ledger retention | ✅ `BalanceBefore`/`BalanceAfter` recorded; cascading deletes prohibited (`Restrict`) |
 | Durable wallet idempotency | ✅ Replaying identical mutation returns original transaction; conflicting reuse returns 409 |
-| Feature gate safety | ✅ `POST /api/customer/wallet/topups` & `POST /api/admin/payments/manual/{pNumber}/approve` return 403 Forbidden when disabled by default |
+| Feature gate safety | ✅ `POST /api/customer/wallet/topups`, `POST /api/admin/payments/manual/{pNumber}/approve`, and `POST /api/customer/orders/{orderNumber}/pay-with-wallet` return 403 Forbidden when disabled by default |
 | Top-up initiation & limits | ✅ Validates min/max amounts, supported methods, initial Pending status, wallet untouched |
 | Customer proof submission | ✅ Records customer TID & transfer date, leaves status Pending, wallet untouched |
 | Admin top-up rejection | ✅ Transitions to Failed, logs reason & admin identity, wallet untouched |
@@ -347,7 +377,13 @@
 | Concurrent approval safety | ✅ Tested on PostgreSQL (`webapitgbot_test`): 2 simultaneous admin approvals result in exactly 1 success, 1 conflict, 1 credit, 0 double-funding |
 | Purpose check constraint | ✅ `CK_Payments_Purpose_Target` guarantees mutually exclusive targets (Order vs Wallet) |
 | Positive amount constraint | ✅ `CK_Payments_Amount_Positive` rejects non-positive payment attempts |
-| Rate limiting & CSRF | ✅ Enforced via `CustomerWalletTopUpLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
+| Customer wallet order payment | ✅ Atomic row locks (Order then Wallet) + wallet debit + Payment Paid + Order Paid |
+| Invariant lock ordering | ✅ Order row locked before Wallet row; deadlocks mathematically eliminated under concurrency |
+| Engine double-payment guard | ✅ PostgreSQL partial unique index `IX_Payments_Paid_OrderId` guarantees at most 1 Paid payment per order |
+| Debit durable operation key | ✅ Debited via stable `WALLET_ORDER:{order.Id}`; replays return existing confirmation without double-debiting |
+| Read-only wallet & ledger | ✅ `GET /api/customer/wallet` and `GET /api/customer/wallet/transactions` return accurate balances & audit records |
+| Insufficient funds rollback | ✅ Clean rollback of balance, payment, and order status with zero financial mutation |
+| Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
 | Supplier privacy | ✅ 100% hidden from customer endpoints and responses |
 | `/swagger` UI | ✅ Available in Development |
 
@@ -355,7 +391,7 @@
 
 ## Next Milestone
 
-- **Milestone 5A**: Customer Wallet Payment for Orders & Atomic Fulfillment Initiation (deducting order total from PKR wallet, transitioning order from `PendingPayment` to `Processing`, and preparing vendor adapter dispatch).
+- **Milestone 5A**: Customer Order Automated/Assisted Vendor Fulfillment & Dispatch Architecture.
 
 ---
 

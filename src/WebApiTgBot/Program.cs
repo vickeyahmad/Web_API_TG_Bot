@@ -249,6 +249,7 @@ builder.Services.AddCors(options =>
 
 // ── Application Options ───────────────────────────────────────────────────────
 builder.Services.Configure<WalletTopUpOptions>(builder.Configuration.GetSection(WalletTopUpOptions.SectionName));
+builder.Services.Configure<WalletPurchaseOptions>(builder.Configuration.GetSection(WalletPurchaseOptions.SectionName));
 
 // ── Application Services ──────────────────────────────────────────────────────
 builder.Services.AddScoped<ICatalogService, CatalogService>();
@@ -263,6 +264,7 @@ builder.Services.AddSingleton<IPaymentNumberGenerator, PaymentNumberGenerator>()
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<ICustomerWalletTopUpService, CustomerWalletTopUpService>();
 builder.Services.AddScoped<IAdminPaymentVerificationService, AdminPaymentVerificationService>();
+builder.Services.AddScoped<IWalletOrderPaymentService, WalletOrderPaymentService>();
 
 
 

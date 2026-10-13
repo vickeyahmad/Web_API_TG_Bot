@@ -7,13 +7,15 @@ using WebApiTgBot.Common.Models;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Orders.Models.DTOs;
 using WebApiTgBot.Modules.Orders.Services;
+using WebApiTgBot.Modules.Payments.Models.DTOs;
+using WebApiTgBot.Modules.Payments.Services;
 
 namespace WebApiTgBot.Modules.Orders.Controllers;
 
 /// <summary>
 /// Authenticated customer order management and tracking endpoints.
 /// Supports order placement with durable idempotency, order history listing,
-/// and order detail tracking.
+/// order detail tracking, and wallet order payments.
 /// Customer identity and sales channel are strictly resolved server-side.
 /// </summary>
 [ApiController]
@@ -22,10 +24,14 @@ namespace WebApiTgBot.Modules.Orders.Controllers;
 public class CustomerOrdersController : ControllerBase
 {
     private readonly ICustomerOrderService _orderService;
+    private readonly IWalletOrderPaymentService _walletPaymentService;
 
-    public CustomerOrdersController(ICustomerOrderService orderService)
+    public CustomerOrdersController(
+        ICustomerOrderService orderService,
+        IWalletOrderPaymentService walletPaymentService)
     {
         _orderService = orderService;
+        _walletPaymentService = walletPaymentService;
     }
 
     /// <summary>
@@ -135,5 +141,61 @@ public class CustomerOrdersController : ControllerBase
         }
 
         return Ok(ApiResponse<CustomerOrderDetailDto>.Ok(order, "Order details retrieved successfully."));
+    }
+
+    /// <summary>
+    /// Pays an existing PendingPayment order using the customer's available PKR wallet balance.
+    /// Requires active Customer session and valid Antiforgery/CSRF token.
+    /// Rate limited and protected by durable idempotency via X-Idempotency-Key.
+    /// </summary>
+    [HttpPost("{orderNumber}/pay-with-wallet")]
+    [EnableRateLimiting("CustomerOrderLimiter")]
+    [ProducesResponseType(typeof(ApiResponse<CustomerOrderPaymentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<CustomerOrderPaymentDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<CustomerOrderPaymentDto>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<CustomerOrderPaymentDto>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<CustomerOrderPaymentDto>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<CustomerOrderPaymentDto>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PayWithWallet(
+        string orderNumber,
+        CancellationToken cancellationToken)
+    {
+        var customerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(customerId))
+        {
+            return Unauthorized(ApiResponse<CustomerOrderPaymentDto>.Fail("Customer session is unauthenticated."));
+        }
+
+        var headerKey = Request.Headers["X-Idempotency-Key"].FirstOrDefault();
+
+        var result = await _walletPaymentService.PayOrderWithWalletAsync(
+            customerId,
+            orderNumber,
+            headerKey,
+            cancellationToken);
+
+        return result.Status switch
+        {
+            WalletOrderPaymentStatus.Success =>
+                Ok(ApiResponse<CustomerOrderPaymentDto>.Ok(result.Data!, result.Message)),
+
+            WalletOrderPaymentStatus.NotFound =>
+                NotFound(ApiResponse<CustomerOrderPaymentDto>.Fail(result.Message)),
+
+            WalletOrderPaymentStatus.Forbidden =>
+                StatusCode(StatusCodes.Status403Forbidden, ApiResponse<CustomerOrderPaymentDto>.Fail(result.Message)),
+
+            WalletOrderPaymentStatus.Unauthorized =>
+                Unauthorized(ApiResponse<CustomerOrderPaymentDto>.Fail(result.Message)),
+
+            WalletOrderPaymentStatus.Conflict =>
+                Conflict(ApiResponse<CustomerOrderPaymentDto>.Fail(result.Message)),
+
+            WalletOrderPaymentStatus.InsufficientFunds =>
+                BadRequest(ApiResponse<CustomerOrderPaymentDto>.Fail(result.Message)),
+
+            _ =>
+                BadRequest(ApiResponse<CustomerOrderPaymentDto>.Fail(result.Message))
+        };
     }
 }

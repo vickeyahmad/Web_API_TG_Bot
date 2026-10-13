@@ -151,6 +151,12 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             .HasFilter("\"Status\" = 'Paid' AND \"VerifiedReceivingAccount\" IS NOT NULL AND \"ProviderTransactionId\" IS NOT NULL")
             .HasDatabaseName("IX_Payments_Paid_Account_ProviderTransactionId");
 
+        // Strict uniqueness on OrderId when Status is Paid to guarantee at the database engine level that no order can be paid twice
+        builder.HasIndex(p => p.OrderId)
+            .IsUnique()
+            .HasFilter("\"Status\" = 'Paid' AND \"OrderId\" IS NOT NULL")
+            .HasDatabaseName("IX_Payments_Paid_OrderId");
+
         // Performance indexes for querying payments by order status, wallet status, and lifecycle
         builder.HasIndex(p => new { p.OrderId, p.Status })
             .HasDatabaseName("IX_Payments_OrderId_Status");

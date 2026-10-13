@@ -695,6 +695,11 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OrderId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Payments_Paid_OrderId")
+                        .HasFilter("\"Status\" = 'Paid' AND \"OrderId\" IS NOT NULL");
+
                     b.HasIndex("PaymentNumber")
                         .IsUnique()
                         .HasDatabaseName("IX_Payments_PaymentNumber");
