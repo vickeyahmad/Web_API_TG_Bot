@@ -751,15 +751,11 @@ public class AdminVendorTests : IClassFixture<CustomWebApplicationFactory>
     public async Task PostgreSql_EnforcesUniqueVendorProductConstraint_AndForeignKeys()
     {
         // This test connects directly to PostgreSQL to verify database constraints
-        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_dev;Username=webapitgbot;Password=Dev_Local_Password_2024!";
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connStr)
-            .Options;
-
+        var options = PostgreSqlTestDatabase.CreateOptions();
         await using var db = new AppDbContext(options);
 
         // Verify relational database connectivity
-        if (!await db.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(db))
         {
             // If PostgreSQL is temporarily unreachable in the test environment, skip gracefully
             return;

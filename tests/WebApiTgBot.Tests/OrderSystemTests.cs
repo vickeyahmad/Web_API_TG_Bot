@@ -342,14 +342,10 @@ public class OrderSystemTests : IClassFixture<CustomWebApplicationFactory>
     public async Task PostgreSql_EnforcesUniqueOrderNumber_AndForeignKeys()
     {
         // Connect directly to the PostgreSQL database to verify schema constraints
-        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_dev;Username=webapitgbot;Password=Dev_Local_Password_2024!";
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connStr)
-            .Options;
-
+        var options = PostgreSqlTestDatabase.CreateOptions();
         await using var db = new AppDbContext(options);
 
-        if (!await db.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(db))
         {
             return;
         }
@@ -573,14 +569,10 @@ public class OrderSystemTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task PostgreSql_EnforcesRestrictDelete_OnOrdersWithItemsAndHistory()
     {
-        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_dev;Username=webapitgbot;Password=Dev_Local_Password_2024!";
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connStr)
-            .Options;
-
+        var options = PostgreSqlTestDatabase.CreateOptions();
         await using var db = new AppDbContext(options);
 
-        if (!await db.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(db))
         {
             return;
         }

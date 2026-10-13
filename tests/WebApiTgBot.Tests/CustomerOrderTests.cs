@@ -545,7 +545,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(product.Name, fetchedOrder.Items[0].ProductName);
     }
 
-    private const string PostgresTestConnectionString = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=webapitgbot;Password=Dev_Local_Password_2024!";
+    private const string PostgresTestConnectionString = PostgreSqlTestDatabase.ConnectionString;
 
     [Fact]
     public async Task PostgreSql_EnforcesDurableIdempotency_AndUniqueConstraint()
@@ -556,7 +556,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
 
         await using var db = new AppDbContext(options);
 
-        if (!await db.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(db))
         {
             return;
         }
@@ -700,7 +700,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
             .Options;
 
         await using var setupDb = new AppDbContext(options);
-        if (!await setupDb.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(setupDb))
         {
             return;
         }
@@ -823,7 +823,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
             .Options;
 
         await using var setupDb = new AppDbContext(options);
-        if (!await setupDb.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(setupDb))
         {
             return;
         }
@@ -939,7 +939,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
             .Options;
 
         await using var setupDb = new AppDbContext(options);
-        if (!await setupDb.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(setupDb))
         {
             return;
         }
@@ -1051,7 +1051,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
             .Options;
 
         await using var setupDb = new AppDbContext(options);
-        if (!await setupDb.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(setupDb))
         {
             return;
         }
@@ -1143,7 +1143,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
             .Options;
 
         await using var setupDb = new AppDbContext(options);
-        if (!await setupDb.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(setupDb))
         {
             return;
         }

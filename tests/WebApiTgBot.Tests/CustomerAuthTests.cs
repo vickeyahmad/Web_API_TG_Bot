@@ -484,14 +484,10 @@ public class CustomerAuthTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task PostgreSql_CustomerIdentityIntegration_PersistsCustomerAndRoleCorrectly()
     {
-        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_dev;Username=webapitgbot;Password=Dev_Local_Password_2024!";
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connStr)
-            .Options;
-
+        var options = PostgreSqlTestDatabase.CreateOptions();
         await using var db = new AppDbContext(options);
 
-        if (!await db.Database.CanConnectAsync())
+        if (!await PostgreSqlTestDatabase.EnsureMigratedAsync(db))
         {
             return;
         }

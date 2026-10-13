@@ -69,4 +69,5 @@ public class Order
     public ApplicationUser Customer { get; set; } = null!;
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
     public ICollection<OrderStatusHistory> StatusHistory { get; set; } = new List<OrderStatusHistory>();
+    public ICollection<WebApiTgBot.Modules.Payments.Models.Payment> Payments { get; set; } = new List<WebApiTgBot.Modules.Payments.Models.Payment>();
 }

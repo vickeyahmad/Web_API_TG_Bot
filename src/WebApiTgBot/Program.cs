@@ -9,6 +9,7 @@ using WebApiTgBot.Modules.Catalog.Services;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Identity.Services;
 using WebApiTgBot.Modules.Orders.Services;
+using WebApiTgBot.Modules.Payments.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -247,6 +248,7 @@ builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
 builder.Services.AddScoped<ICustomerOrderService, CustomerOrderService>();
 builder.Services.AddScoped<IAdminSeeder, AdminSeeder>();
 builder.Services.AddSingleton<IOrderNumberGenerator, OrderNumberGenerator>();
+builder.Services.AddSingleton<IPaymentNumberGenerator, PaymentNumberGenerator>();
 
 
 

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using WebApiTgBot.Modules.Catalog.Models;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Orders.Models;
+using WebApiTgBot.Modules.Payments.Models;
 
 namespace WebApiTgBot.Infrastructure.Data;
 
@@ -25,6 +26,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<PaymentStatusHistory> PaymentStatusHistories => Set<PaymentStatusHistory>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

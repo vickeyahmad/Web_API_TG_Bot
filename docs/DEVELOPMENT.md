@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 3C — Customer Order Placement & Tracking ✅ COMPLETE
+## Current Phase: Milestone 4A — Central Payment System Foundation ✅ COMPLETE
 
 ---
 
@@ -191,6 +191,32 @@
 - **Automated Tests**:
   - 112 total tests passing (3 Health + 10 Catalog Public + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order, Concurrency & PostgreSQL constraint tests).
 
+### Milestone 4A — Central Payment System Foundation
+- **Unified Payment Data Model (`Payments`)**:
+  - Central `Payment` entity linked to `Orders` (`OrderId` foreign key, `DeleteBehavior.Restrict`).
+  - Collision-resistant, standardized payment identifier: `PaymentNumber` (`PAY-yyyyMMdd-XXXXXX`, unique index `IX_Payments_PaymentNumber`).
+  - Monetary values stored with exact precision `decimal(18,4)` and explicit currency code (`Currency`, default `PKR`).
+  - Standardized payment methods decoupled via `PaymentMethodCode` (`PaymentMethodCodes` constants: `JAZZCASH`, `EASYPAISA`, `NAYAPAY`, `SADAPAY`, `BANK_TRANSFER`, `WALLET`, `CRYPTO_BINANCE`, `CRYPTO_USDT`).
+  - Confidential external provider reference: `ProviderTransactionId` (nullable, filtered index). Supplying a transaction reference never marks an order or payment as `Paid`.
+  - Durable idempotency support: `IdempotencyKey` protected by PostgreSQL filtered unique index `IX_Payments_OrderId_IdempotencyKey`.
+  - Timestamps: `CreatedAt`, `UpdatedAt`, `PaidAt` (set exclusively upon trusted verification), and `ExpiredAt`.
+- **Payment Status Lifecycle (`PaymentStatus` & `PaymentStatusTransitions`)**:
+  - Strongly typed statuses: `Pending`, `Paid`, `Failed`, `Expired`, `Refunded`, `PartiallyRefunded`.
+  - Controlled status transitions: Enforces that `Failed`, `Expired`, and `Refunded` are terminal states; prohibits resurrection from failed/expired to `Paid`; requires verified administrative or cryptographic event for `Paid`.
+- **Permanent Payment Audit History (`PaymentStatusHistory`)**:
+  - Permanent audit trail tracking `PreviousStatus`, `NewStatus`, `Reason`, `ChangedByUserId`, and `ChangedAt`.
+  - Prohibits destructive cascading deletes (`DeleteBehavior.Restrict` on `Payment -> StatusHistory`).
+  - Attribution preserved with `DeleteBehavior.SetNull` on `ChangedByUserId -> AspNetUsers`.
+- **Order & Payment Architectural Integrity**:
+  - One-to-many relationship: One order can have multiple payment attempts (`Order.Payments`).
+  - Failed or expired payment attempts do not delete or invalidate the order.
+  - Decoupled lifecycle: Creating a `Pending` payment attempt does not mutate `OrderStatus.PendingPayment`.
+  - Deleting an order with payment records is strictly prohibited (`DeleteBehavior.Restrict`).
+- **Database Migration**:
+  - Migration `20261013083725_AddCentralPaymentSystemFoundation` created with idempotent SQL script.
+- **Automated Tests**:
+  - 130 total tests passing (112 existing + 18 Payment Foundation tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -198,9 +224,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (112 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order) |
-| Docker PostgreSQL | ✅ Running and healthy on `localhost:5432` |
-| Database migrations applied | ✅ Up to date (`AddOrderPlacementAndIdempotency` verified) |
+| `dotnet test` (130 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation) |
+| Docker PostgreSQL | ✅ Migration `AddCentralPaymentSystemFoundation` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
+| Database migrations applied | ✅ Up to date (`AddCentralPaymentSystemFoundation` applied across development and test databases) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -220,11 +246,18 @@
 | Customer order creation | ✅ 201 Created with server-side pricing & initial `PendingPayment` state |
 | Server-side pricing enforcement | ✅ Pricing resolved directly from DB; client prices never accepted |
 | Catalog state guards | ✅ Inactive products & disabled categories rejected (400 Bad Request) |
-| Durable idempotency | ✅ Identical key returns existing order; mismatched key returns 409 Conflict |
-| PostgreSQL idempotency constraint | ✅ Filtered unique index `IX_Orders_CustomerId_IdempotencyKey` prevents duplicate inserts (error 23505) |
-| Customer order listing | ✅ 200 OK with pagination & optional status filter |
+| Durable order idempotency | ✅ Identical key returns existing order; mismatched key returns 409 Conflict |
 | Customer order isolation | ✅ Other customers' orders return 404 Not Found; zero cross-customer data leakage |
 | Price snapshot immutability | ✅ Past order line item price snapshots remain unchanged after catalog price updates |
+| Payment entity relationships | ✅ Verified Order -> Payments and Payment -> PaymentStatusHistory |
+| Unique PaymentNumber | ✅ Enforced via database unique index `IX_Payments_PaymentNumber` |
+| Multiple payment attempts | ✅ Multiple failed/expired/pending attempts associated with one order without deleting order |
+| Payment amounts & precision | ✅ Explicit `decimal(18,4)` precision and currency codes; non-positive amounts rejected |
+| Payment status transitions | ✅ State machine enforces valid transitions and prohibits jumping to `Paid` from terminal states |
+| Payment audit history | ✅ Permanent audit logs track previous status, new status, timestamp, and actor |
+| Restrict delete on payments | ✅ Prohibits deleting orders with payment records or payments with history |
+| Untrusted reference safety | ✅ Supplying `ProviderTransactionId` never marks a payment as `Paid` |
+| Order status decoupling | ✅ Creating `Pending` payment attempt leaves `OrderStatus.PendingPayment` unchanged |
 | Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
 | Supplier privacy | ✅ 100% hidden from customer order endpoints and responses |
 | `/swagger` UI | ✅ Available in Development |
@@ -233,7 +266,7 @@
 
 ## Next Milestone
 
-- **Milestone 4A**: Customer Checkout & Payment System Foundation (payment receipt upload, manual payment verification flow, customer PKR wallet ledger foundation).
+- **Milestone 4B**: Customer Payment Proof Submission & Manual Admin Verification (proof receipt upload, transaction ID submission, administrator review flow, transition to `Paid` and order progression).
 
 
 
