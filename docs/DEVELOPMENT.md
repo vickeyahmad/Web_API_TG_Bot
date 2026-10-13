@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 4A — Central Payment System Foundation ✅ COMPLETE
+## Current Phase: Milestone 4B — Customer PKR Wallet & Permanent Transaction Ledger ✅ COMPLETE
 
 ---
 
@@ -217,6 +217,42 @@
 - **Automated Tests**:
   - 130 total tests passing (112 existing + 18 Payment Foundation tests, 0 failed, 0 skipped).
 
+### Milestone 4B — Customer PKR Wallet & Permanent Transaction Ledger
+- **Central Customer Wallet Model (`Wallets`)**:
+  - Central `Wallet` entity linked directly to `ApplicationUser` (`CustomerId`, `DeleteBehavior.Restrict`).
+  - Exactly one wallet per customer per currency enforced via PostgreSQL unique index `IX_Wallets_CustomerId_Currency`.
+  - Non-negative balance constraint enforced at both the application level and the PostgreSQL engine level (`CK_Wallets_Balance_NonNegative`: `"Balance" >= 0`).
+  - Initial balance defaults to 0.0000m with exact `decimal(18,4)` precision.
+  - Client-driven balance modifications strictly prohibited; all balance changes mediated exclusively via internal `IWalletService`.
+- **Permanent Transaction Ledger (`WalletTransactions`)**:
+  - Immutable, append-only financial ledger recording `BalanceBefore`, `BalanceAfter`, `Amount` (> 0), `TransactionType` (Credit / Debit), `OperationKey`, `SourceType`, `SourceReferenceId`, `Description`, and timestamps.
+  - Enforces positive amount constraint (`CK_WalletTransactions_Amount_Positive`: `"Amount" > 0`).
+  - Traceable source categorization via `WalletTransactionSource` (`DepositVerification`, `OrderPayment`, `Refund`, `AdminAdjustment`, `CompensatingCorrection`).
+  - Historical records are never modified or purged; corrections use traceable compensating transactions.
+  - Referential integrity: `DeleteBehavior.Restrict` on both `User -> Wallets` and `Wallet -> WalletTransactions` (`ON DELETE RESTRICT`), preventing accidental or cascading purging of financial records.
+  - Attribution preserved with `DeleteBehavior.SetNull` on `CreatedByUserId -> AspNetUsers`.
+- **Internal Wallet Service (`IWalletService` / `WalletService`)**:
+  - `GetOrCreateWalletAsync`: Thread-safe, racing-creation-resistant wallet initialization with initial zero balance.
+  - `GetBalanceAsync`: Read-only, unpolluted customer balance retrieval.
+  - `CreditAsync`: Atomically increases wallet balance and creates a permanent ledger entry.
+  - `DebitAsync`: Verifies available funds, decrements balance, and creates a ledger entry. Prohibits overdrafts.
+  - `GetTransactionHistoryAsync`: Chronological ledger audit history retrieval for reconciliation.
+- **Concurrency & Concurrency Safeguards**:
+  - Pessimistic row-level locking via PostgreSQL `SELECT * FROM "Wallets" WHERE "Id" = @id FOR UPDATE` within an explicit database transaction (`BeginTransactionAsync`).
+  - Eliminates lost updates when concurrent application requests or cluster nodes mutate the same wallet.
+  - Prevents overspending when two simultaneous debits race each other (only the winner succeeds; the loser receives `InsufficientFunds`).
+  - Guarantees exact final balance under high concurrent distinct credit operations.
+- **Durable Idempotency**:
+  - Unique operation key per wallet enforced in PostgreSQL via `IX_WalletTransactions_WalletId_OperationKey`.
+  - Idempotency verified before debit balance validation: Replaying an identical operation safely returns the existing transaction and resulting balance without modifying funds; re-using a key with conflicting transaction details returns 409 Conflict.
+- **Scope Isolation & Zero Real-Money Movement**:
+  - Standalone wallet operations have zero impact on existing Order and Payment statuses.
+  - No public or customer wallet mutation endpoints; no real gateway connections enabled in this phase.
+- **Database Migration**:
+  - Migration `20261013113527_AddCustomerWalletAndLedgerFoundation` created and applied to both `webapitgbot_dev` and `webapitgbot_test`.
+- **Automated Tests**:
+  - 148 total tests passing (130 existing + 18 Wallet Integration, Concurrency & PostgreSQL constraint tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -224,9 +260,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (130 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation) |
-| Docker PostgreSQL | ✅ Migration `AddCentralPaymentSystemFoundation` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
-| Database migrations applied | ✅ Up to date (`AddCentralPaymentSystemFoundation` applied across development and test databases) |
+| `dotnet test` (148 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation) |
+| Docker PostgreSQL | ✅ Migration `AddCustomerWalletAndLedgerFoundation` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
+| Database migrations applied | ✅ Up to date (`AddCustomerWalletAndLedgerFoundation` applied across development and test databases) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -258,6 +294,12 @@
 | Restrict delete on payments | ✅ Prohibits deleting orders with payment records or payments with history |
 | Untrusted reference safety | ✅ Supplying `ProviderTransactionId` never marks a payment as `Paid` |
 | Order status decoupling | ✅ Creating `Pending` payment attempt leaves `OrderStatus.PendingPayment` unchanged |
+| Wallet zero initial balance | ✅ Wallets initialize deterministically at 0.0000 PKR; one wallet per currency |
+| Wallet non-negative balance | ✅ Enforced via check constraint `CK_Wallets_Balance_NonNegative` (`Balance >= 0`) |
+| Concurrent wallet creation | ✅ Safe against racing creations; exactly one wallet per customer initialized |
+| Wallet atomic mutation & lock | ✅ `SELECT ... FOR UPDATE` row locking prevents lost updates and concurrent overspending |
+| Permanent ledger retention | ✅ `BalanceBefore`/`BalanceAfter` recorded; cascading deletes prohibited (`Restrict`) |
+| Durable wallet idempotency | ✅ Replaying identical mutation returns original transaction; conflicting reuse returns 409 |
 | Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
 | Supplier privacy | ✅ 100% hidden from customer order endpoints and responses |
 | `/swagger` UI | ✅ Available in Development |
@@ -266,7 +308,7 @@
 
 ## Next Milestone
 
-- **Milestone 4B**: Customer Payment Proof Submission & Manual Admin Verification (proof receipt upload, transaction ID submission, administrator review flow, transition to `Paid` and order progression).
+- **Milestone 4C**: Customer Payment Proof Submission & Manual Admin Verification (proof receipt upload, transaction ID submission, administrator review flow, transition to `Paid` and order progression).
 
 
 

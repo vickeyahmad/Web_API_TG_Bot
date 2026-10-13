@@ -4,6 +4,7 @@ using WebApiTgBot.Modules.Catalog.Models;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Orders.Models;
 using WebApiTgBot.Modules.Payments.Models;
+using WebApiTgBot.Modules.Wallets.Models;
 
 namespace WebApiTgBot.Infrastructure.Data;
 
@@ -28,6 +29,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<PaymentStatusHistory> PaymentStatusHistories => Set<PaymentStatusHistory>();
+    public DbSet<Wallet> Wallets => Set<Wallet>();
+    public DbSet<WalletTransaction> WalletTransactions => Set<WalletTransaction>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
