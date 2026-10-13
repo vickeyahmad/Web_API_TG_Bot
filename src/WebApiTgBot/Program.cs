@@ -213,6 +213,12 @@ builder.Services.AddRateLimiter(options =>
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueLimit = 0;
     });
+    options.AddFixedWindowLimiter("AdminOrderLimiter", opt =>
+    {
+        opt.PermitLimit = permitLimit;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -265,6 +271,7 @@ builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<ICustomerWalletTopUpService, CustomerWalletTopUpService>();
 builder.Services.AddScoped<IAdminPaymentVerificationService, AdminPaymentVerificationService>();
 builder.Services.AddScoped<IWalletOrderPaymentService, WalletOrderPaymentService>();
+builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
 
 
 

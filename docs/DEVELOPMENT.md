@@ -318,6 +318,35 @@
 - **Automated Tests**:
   - 184 total tests passing (167 existing + 17 Milestone 4D Customer Wallet Order Payment & Financial Verification tests, 0 failed, 0 skipped).
 
+### Milestone 5A — Admin Order Management & Fulfillment Preparation
+- **Centralized Administrator Order Management (`AdminOrdersController` & `IAdminOrderService`)**:
+  - Central order visibility across all future sales channels (AI Tools Website, Digital Products Store, Telegram Bot, SMM Panel).
+  - Protected by `AppRoles.Admin`, cookie authentication (`.WebAPI.Admin.Auth`), antiforgery validation (`AutoValidateAntiforgeryToken`), and rate limiting (`AdminOrderLimiter`).
+  - Strict authorization: Anonymous requests return `401 Unauthorized`; customer accounts return `403 Forbidden`.
+- **Admin Order List & Multi-Criteria Filtering (`GET /api/admin/orders`)**:
+  - Server-side pagination (`Page = 1` default, `PageSize = 10` default, max 100).
+  - Filter parameters: `status`, `salesChannel`, `customerQuery` (matches customer ID, email, or full name), `orderNumber`, `productSku`, and date range (`fromUtc`, `toUtc`).
+  - Always ordered newest first (`CreatedAtUtc` descending).
+  - Returns safe `AdminOrderSummaryDto` containing order header, customer identity, payment overview, line items, and current statuses.
+- **Admin Order Details & Historical Snapshot Preservation (`GET /api/admin/orders/{orderNumber}`)**:
+  - Complete operational inspection view (`AdminOrderDetailDto`).
+  - Preserves immutable line item snapshots (`ProductSkuSnapshot`, `ProductNameSnapshot`, `UnitPriceSnapshot`, `TotalPrice`) captured at purchase time.
+  - Displays customer notes and full chronological audit trail from `OrderStatusHistory`.
+  - Distinguishes and lists all `OrderPurchase` payment attempts (displaying `Pending`, `Paid`, `Failed`, `Expired`, `ProviderTransactionId`, and payment method).
+  - Filters out unrelated `WalletTopUp` payments to maintain clean order accounting.
+- **Controlled Manual Processing Initiation (`POST /api/admin/orders/{orderNumber}/start-processing`)**:
+  - Explicit business action to transition an order from `Paid` to `Processing`.
+  - Validates customer account exists and is not deleted.
+  - Validates order is strictly in `OrderStatus.Paid`. Unpaid, pending payment, cancelled, or already processing orders are rejected (`409 Conflict`).
+  - Verifies existence of a trusted `Paid` `OrderPurchase` payment with matching amount and currency (`PKR`).
+  - State machine enforcement via `OrderStatusTransitions.CanTransition(OrderStatus.Paid, OrderStatus.Processing)`.
+  - Appends an immutable `OrderStatusHistory` record capturing acting admin ID, reason, and UTC timestamp.
+  - Concurrency & double-click protection: Pessimistic row lock (`SELECT ... FROM "Orders" WHERE "OrderNumber" = @p FOR UPDATE`) inside an explicit atomic database transaction ensures racing admin clicks or retries are rejected safely without duplicate history entries.
+- **Zero Schema Migrations Required**:
+  - Reused existing normalized schema, foreign keys, and indexes on `Orders`, `OrderItems`, `OrderStatusHistory`, and `Payments`.
+- **Automated Tests**:
+  - 202 total tests passing (184 existing + 18 new Milestone 5A Admin Orders & Fulfillment Preparation tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -325,9 +354,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (184 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification) |
+| `dotnet test` (202 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation) |
 | Docker PostgreSQL | ✅ Migration `AddUniquePaidOrderPaymentIndex` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
-| Database migrations applied | ✅ Up to date (`AddUniquePaidOrderPaymentIndex` applied across development and test databases) |
+| Database migrations applied | ✅ Up to date (No pending model changes) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -385,13 +414,20 @@
 | Insufficient funds rollback | ✅ Clean rollback of balance, payment, and order status with zero financial mutation |
 | Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
 | Supplier privacy | ✅ 100% hidden from customer endpoints and responses |
+| Admin order listing & filtering | ✅ `GET /api/admin/orders` supports pagination, multi-criteria filtering, and newest-first ordering |
+| Admin order detail snapshot | ✅ `GET /api/admin/orders/{orderNumber}` returns line item price snapshots, chronological history & order payments |
+| Payment isolation in order detail | ✅ `WalletTopUp` payments strictly filtered out from order payment details |
+| Admin start processing transition | ✅ `POST /api/admin/orders/{orderNumber}/start-processing` transitions `Paid` -> `Processing` with audit log |
+| Unpaid/mismatched order guard | ✅ Start-processing strictly rejects unpaid orders or mismatched payment amounts |
+| Concurrency & race condition safety | ✅ PostgreSQL row lock (`SELECT ... FOR UPDATE`) prevents duplicate history and racing processing |
+| Admin order role & rate limiting | ✅ Restricted to `AppRoles.Admin`, CSRF-enforced, and rate-limited via `AdminOrderLimiter` |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 5A**: Customer Order Automated/Assisted Vendor Fulfillment & Dispatch Architecture.
+- **Milestone 5B**: Automated & Assisted Supplier/Vendor API Integration & Fulfillment Dispatch.
 
 ---
 
