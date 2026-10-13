@@ -1,4 +1,5 @@
 using WebApiTgBot.Modules.Identity.Models;
+using WebApiTgBot.Modules.Payments.Models;
 
 namespace WebApiTgBot.Modules.Wallets.Models;
 
@@ -38,4 +39,9 @@ public class Wallet
     /// Permanent ledger of all historical credit and debit transactions for this wallet.
     /// </summary>
     public ICollection<WalletTransaction> Transactions { get; set; } = new List<WalletTransaction>();
+
+    /// <summary>
+    /// Collection of top-up payment attempts associated with this wallet.
+    /// </summary>
+    public ICollection<Payment> TopUpPayments { get; set; } = new List<Payment>();
 }

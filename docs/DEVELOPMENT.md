@@ -1,6 +1,6 @@
 # Development Progress
 
-## Current Phase: Milestone 4B — Customer PKR Wallet & Permanent Transaction Ledger ✅ COMPLETE
+## Current Phase: Milestone 4C — Manual PKR Payment Verification & Wallet Top-Ups ✅ COMPLETE
 
 ---
 
@@ -253,6 +253,41 @@
 - **Automated Tests**:
   - 148 total tests passing (130 existing + 18 Wallet Integration, Concurrency & PostgreSQL constraint tests, 0 failed, 0 skipped).
 
+### Milestone 4C — Manual PKR Payment Verification & Wallet Top-Ups
+- **Central Payment Model Extension**:
+  - `PaymentPurpose` enum (`OrderPurchase = 1`, `WalletTopUp = 2`).
+  - Added nullable `OrderId` and nullable `WalletId` with `DeleteBehavior.Restrict`.
+  - Database check constraint `CK_Payments_Purpose_Target` enforcing mutual exclusivity:
+    `("Purpose" = 'OrderPurchase' AND "OrderId" IS NOT NULL AND "WalletId" IS NULL) OR ("Purpose" = 'WalletTopUp' AND "WalletId" IS NOT NULL AND "OrderId" IS NULL)`.
+  - Database check constraint `CK_Payments_Amount_Positive` enforcing `"Amount" > 0`.
+  - Customer transfer proof fields: `CustomerReference`, `CustomerTransferDate`, `CustomerSenderAccount`, `CustomerNotes`, `CustomerProofSubmittedAt`.
+  - Admin manual verification fields: `VerifiedByUserId` (FK to AspNetUsers with `SetNull`), `VerifiedReceivingAccount`, `AdminNotes`, `VerifiedAt`.
+  - PostgreSQL unique partial index `IX_Payments_Paid_ProviderTransactionId` (`WHERE "Status" = 'Paid' AND "ProviderTransactionId" IS NOT NULL`) preventing double-crediting of the same verified bank reference.
+  - PostgreSQL unique partial index `IX_Payments_WalletId_IdempotencyKey` enforcing durable top-up idempotency per wallet.
+- **Safety Feature Gate**:
+  - `WalletTopUpOptions` with master toggle `Enabled = false` by default for production safety.
+  - Returns `403 Forbidden` when disabled.
+  - Configurable min/max limits (`MinAmount = 100`, `MaxAmount = 500000`), allowed payment method codes, and bank receiving details.
+- **Customer Manual Top-Up Flow**:
+  - `POST /api/customer/wallet/topups`: Rate-limited (`CustomerWalletTopUpLimiter`), requires Customer role, validates amount & method, creates `Payment` in `Pending` status with initial `PaymentStatusHistory`, wallet balance untouched (0). Replaying with `X-Idempotency-Key` safely returns existing payment.
+  - `POST /api/customer/wallet/topups/{paymentNumber}/proof`: Customer submits bank transfer TID / reference, date, and sender account. Updates payment proof fields, appends audit note, status remains `Pending`, wallet balance is **not** credited.
+  - `GET /api/customer/wallet/topups`: Paginated list of customer top-ups, ordered by creation date descending.
+  - `GET /api/customer/wallet/topups/{paymentNumber}`: Detailed tracking with strict customer ownership isolation (other customers receive `404 Not Found`).
+- **Administrator Verification & Single Atomic PostgreSQL Transaction**:
+  - `GET /api/admin/payments/manual`: Paginated review of manual top-ups with optional status filter (`Pending`, `Paid`, `Failed`).
+  - `GET /api/admin/payments/manual/{paymentNumber}`: Complete administrative detail view including customer identity, proof submission details, verification metadata, and chronological audit history.
+  - `POST /api/admin/payments/manual/{paymentNumber}/reject`: Administrator rejects pending top-up with reason. Transitions status to `Failed`, records admin ID, wallet balance is untouched.
+  - `POST /api/admin/payments/manual/{paymentNumber}/approve`: Administrator confirms verified bank TID. Executes inside a single atomic PostgreSQL transaction with row-level locking (`SELECT ... FOR UPDATE`):
+    1. Transitions payment to `Paid`, populates `PaidAt`, `ProviderTransactionId`, and admin verification fields.
+    2. Appends `PaymentStatusHistory` audit record.
+    3. Atomically credits customer PKR wallet via `IWalletService.CreditAsync` using stable operation key `WALLET_TOPUP:{PaymentId}` and source `DepositVerification`.
+    4. If any step or validation fails, transaction rolls back completely.
+    5. Duplicate verified TID attempt rejected with `409 Conflict`.
+- **Database Migration**:
+  - Migration `20261013185701_AddManualWalletTopUpsAndPaymentPurpose` created and applied to `webapitgbot_dev` and `webapitgbot_test`.
+- **Automated Tests**:
+  - 164 total tests passing (148 existing + 16 new Milestone 4C Integration, Concurrency & PostgreSQL constraint tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -260,9 +295,9 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (148 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation) |
-| Docker PostgreSQL | ✅ Migration `AddCustomerWalletAndLedgerFoundation` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
-| Database migrations applied | ✅ Up to date (`AddCustomerWalletAndLedgerFoundation` applied across development and test databases) |
+| `dotnet test` (167 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Financial Verification) |
+| Docker PostgreSQL | ✅ Migration `ScopeVerifiedPaymentReferenceToReceivingAccount` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
+| Database migrations applied | ✅ Up to date (`ScopeVerifiedPaymentReferenceToReceivingAccount` applied across development and test databases) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
 | `GET /api/products` | ✅ 200 OK (public active only, vendor details strictly omitted) |
@@ -300,18 +335,27 @@
 | Wallet atomic mutation & lock | ✅ `SELECT ... FOR UPDATE` row locking prevents lost updates and concurrent overspending |
 | Permanent ledger retention | ✅ `BalanceBefore`/`BalanceAfter` recorded; cascading deletes prohibited (`Restrict`) |
 | Durable wallet idempotency | ✅ Replaying identical mutation returns original transaction; conflicting reuse returns 409 |
-| Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
-| Supplier privacy | ✅ 100% hidden from customer order endpoints and responses |
+| Feature gate safety | ✅ `POST /api/customer/wallet/topups` & `POST /api/admin/payments/manual/{pNumber}/approve` return 403 Forbidden when disabled by default |
+| Top-up initiation & limits | ✅ Validates min/max amounts, supported methods, initial Pending status, wallet untouched |
+| Customer proof submission | ✅ Records customer TID & transfer date, leaves status Pending, wallet untouched |
+| Admin top-up rejection | ✅ Transitions to Failed, logs reason & admin identity, wallet untouched |
+| Atomic admin approval | ✅ Atomic row lock + Paid transition + single-transaction `WalletService.CreditAsync` |
+| Stable operation key | ✅ Wallet credited using durable `WALLET_TOPUP:{PaymentId}`; replay safe |
+| Multi-account duplicate prevention | ✅ Unique partial index `IX_Payments_Paid_Account_ProviderTransactionId` strictly blocks reusing verified bank TID within the same receiving account while safely allowing distinct accounts |
+| Ambiguous reference defense | ✅ Rejects generic or placeholder transaction references ("0000", "N/A", "CASH", "TEST", len < 4) |
+| Amount & currency validation | ✅ Administrator approval strictly verifies amount and currency match payment request; mismatches rejected |
+| Concurrent approval safety | ✅ Tested on PostgreSQL (`webapitgbot_test`): 2 simultaneous admin approvals result in exactly 1 success, 1 conflict, 1 credit, 0 double-funding |
+| Purpose check constraint | ✅ `CK_Payments_Purpose_Target` guarantees mutually exclusive targets (Order vs Wallet) |
+| Positive amount constraint | ✅ `CK_Payments_Amount_Positive` rejects non-positive payment attempts |
+| Rate limiting & CSRF | ✅ Enforced via `CustomerWalletTopUpLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
+| Supplier privacy | ✅ 100% hidden from customer endpoints and responses |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 4C**: Customer Payment Proof Submission & Manual Admin Verification (proof receipt upload, transaction ID submission, administrator review flow, transition to `Paid` and order progression).
-
-
-
+- **Milestone 5A**: Customer Wallet Payment for Orders & Atomic Fulfillment Initiation (deducting order total from PKR wallet, transitioning order from `PendingPayment` to `Processing`, and preparing vendor adapter dispatch).
 
 ---
 
@@ -321,3 +365,4 @@
 - Never put passwords or secrets in source code.
 - Never push to GitHub without owner permission.
 - Run `dotnet build` and `dotnet test` after every change.
+

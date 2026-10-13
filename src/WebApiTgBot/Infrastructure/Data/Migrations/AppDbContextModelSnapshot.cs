@@ -601,6 +601,10 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("AdminNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<decimal>("Amount")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
@@ -615,6 +619,24 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(10)")
                         .HasDefaultValue("PKR");
 
+                    b.Property<string>("CustomerNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("CustomerProofSubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerReference")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("CustomerSenderAccount")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("CustomerTransferDate")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("ExpiredAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -622,7 +644,7 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<long>("OrderId")
+                    b.Property<long?>("OrderId")
                         .HasColumnType("bigint");
 
                     b.Property<DateTime?>("PaidAt")
@@ -642,6 +664,13 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("OrderPurchase");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -649,6 +678,20 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("VerifiedReceivingAccount")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long?>("WalletId")
+                        .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
@@ -660,10 +703,12 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_Payments_ProviderTransactionId")
                         .HasFilter("\"ProviderTransactionId\" IS NOT NULL");
 
+                    b.HasIndex("VerifiedByUserId");
+
                     b.HasIndex("OrderId", "IdempotencyKey")
                         .IsUnique()
                         .HasDatabaseName("IX_Payments_OrderId_IdempotencyKey")
-                        .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+                        .HasFilter("\"OrderId\" IS NOT NULL AND \"IdempotencyKey\" IS NOT NULL");
 
                     b.HasIndex("OrderId", "Status")
                         .HasDatabaseName("IX_Payments_OrderId_Status");
@@ -671,7 +716,25 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.HasIndex("Status", "CreatedAt")
                         .HasDatabaseName("IX_Payments_Status_CreatedAt");
 
-                    b.ToTable("Payments", (string)null);
+                    b.HasIndex("VerifiedReceivingAccount", "ProviderTransactionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Payments_Paid_Account_ProviderTransactionId")
+                        .HasFilter("\"Status\" = 'Paid' AND \"VerifiedReceivingAccount\" IS NOT NULL AND \"ProviderTransactionId\" IS NOT NULL");
+
+                    b.HasIndex("WalletId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Payments_WalletId_IdempotencyKey")
+                        .HasFilter("\"WalletId\" IS NOT NULL AND \"IdempotencyKey\" IS NOT NULL");
+
+                    b.HasIndex("WalletId", "Status")
+                        .HasDatabaseName("IX_Payments_WalletId_Status");
+
+                    b.ToTable("Payments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_Payments_Purpose_Target", "(\"Purpose\" = 'OrderPurchase' AND \"OrderId\" IS NOT NULL AND \"WalletId\" IS NULL) OR (\"Purpose\" = 'WalletTopUp' AND \"WalletId\" IS NOT NULL AND \"OrderId\" IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("WebApiTgBot.Modules.Payments.Models.PaymentStatusHistory", b =>
@@ -972,10 +1035,23 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.HasOne("WebApiTgBot.Modules.Orders.Models.Order", "Order")
                         .WithMany("Payments")
                         .HasForeignKey("OrderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("WebApiTgBot.Modules.Identity.Models.ApplicationUser", "VerifiedByUser")
+                        .WithMany()
+                        .HasForeignKey("VerifiedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("WebApiTgBot.Modules.Wallets.Models.Wallet", "Wallet")
+                        .WithMany("TopUpPayments")
+                        .HasForeignKey("WalletId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Order");
+
+                    b.Navigation("VerifiedByUser");
+
+                    b.Navigation("Wallet");
                 });
 
             modelBuilder.Entity("WebApiTgBot.Modules.Payments.Models.PaymentStatusHistory", b =>
@@ -1056,6 +1132,8 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("WebApiTgBot.Modules.Wallets.Models.Wallet", b =>
                 {
+                    b.Navigation("TopUpPayments");
+
                     b.Navigation("Transactions");
                 });
 #pragma warning restore 612, 618

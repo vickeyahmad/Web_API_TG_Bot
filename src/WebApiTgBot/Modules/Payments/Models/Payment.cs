@@ -1,9 +1,11 @@
+using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Orders.Models;
+using WebApiTgBot.Modules.Wallets.Models;
 
 namespace WebApiTgBot.Modules.Payments.Models;
 
 /// <summary>
-/// Central payment entity representing a financial transaction attempt for an order.
+/// Central payment entity representing a financial transaction attempt for an order or wallet top-up.
 /// Decoupled from order fulfillment lifecycle and third-party gateway implementations.
 /// Captures immutable financial snapshots at creation time.
 /// </summary>
@@ -19,9 +21,19 @@ public class Payment
     public string PaymentNumber { get; set; } = string.Empty;
 
     /// <summary>
-    /// Foreign key linking to the central Order being paid.
+    /// Purpose and domain target of this payment (OrderPurchase or WalletTopUp).
     /// </summary>
-    public long OrderId { get; set; }
+    public PaymentPurpose Purpose { get; set; } = PaymentPurpose.OrderPurchase;
+
+    /// <summary>
+    /// Foreign key linking to the central Order being paid (populated if Purpose == OrderPurchase).
+    /// </summary>
+    public long? OrderId { get; set; }
+
+    /// <summary>
+    /// Foreign key linking to the central customer Wallet being topped up (populated if Purpose == WalletTopUp).
+    /// </summary>
+    public long? WalletId { get; set; }
 
     /// <summary>
     /// Monetary amount of this payment attempt in explicit decimal(18,4) precision.
@@ -46,15 +58,29 @@ public class Payment
 
     /// <summary>
     /// Client or system-supplied idempotency key used to prevent duplicate payment attempts.
-    /// Filtered unique index in PostgreSQL per OrderId.
+    /// Filtered unique index in PostgreSQL per OrderId / WalletId.
     /// </summary>
     public string? IdempotencyKey { get; set; }
 
     /// <summary>
     /// External payment provider's reference/transaction ID (e.g. JazzCash TID, Easypaisa TRX ID, Bank ref).
     /// Kept confidential and never exposed to unauthorized parties.
+    /// Filtered unique index in PostgreSQL for Paid status to eliminate double-crediting.
     /// </summary>
     public string? ProviderTransactionId { get; set; }
+
+    // Customer manual transfer proof fields
+    public string? CustomerReference { get; set; }
+    public DateTime? CustomerTransferDate { get; set; }
+    public string? CustomerSenderAccount { get; set; }
+    public string? CustomerNotes { get; set; }
+    public DateTime? CustomerProofSubmittedAt { get; set; }
+
+    // Admin manual verification fields
+    public string? VerifiedByUserId { get; set; }
+    public string? VerifiedReceivingAccount { get; set; }
+    public string? AdminNotes { get; set; }
+    public DateTime? VerifiedAt { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -71,6 +97,8 @@ public class Payment
     public DateTime? ExpiredAt { get; set; }
 
     // Navigation properties
-    public Order Order { get; set; } = null!;
+    public Order? Order { get; set; }
+    public Wallet? Wallet { get; set; }
+    public ApplicationUser? VerifiedByUser { get; set; }
     public ICollection<PaymentStatusHistory> StatusHistory { get; set; } = new List<PaymentStatusHistory>();
 }

@@ -9,6 +9,7 @@ using WebApiTgBot.Modules.Catalog.Services;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Identity.Services;
 using WebApiTgBot.Modules.Orders.Services;
+using WebApiTgBot.Modules.Payments.Options;
 using WebApiTgBot.Modules.Payments.Services;
 using WebApiTgBot.Modules.Wallets.Services;
 
@@ -206,6 +207,12 @@ builder.Services.AddRateLimiter(options =>
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueLimit = 0;
     });
+    options.AddFixedWindowLimiter("CustomerWalletTopUpLimiter", opt =>
+    {
+        opt.PermitLimit = permitLimit;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -240,6 +247,9 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ── Application Options ───────────────────────────────────────────────────────
+builder.Services.Configure<WalletTopUpOptions>(builder.Configuration.GetSection(WalletTopUpOptions.SectionName));
+
 // ── Application Services ──────────────────────────────────────────────────────
 builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<IAdminCatalogService, AdminCatalogService>();
@@ -251,6 +261,8 @@ builder.Services.AddScoped<IAdminSeeder, AdminSeeder>();
 builder.Services.AddSingleton<IOrderNumberGenerator, OrderNumberGenerator>();
 builder.Services.AddSingleton<IPaymentNumberGenerator, PaymentNumberGenerator>();
 builder.Services.AddScoped<IWalletService, WalletService>();
+builder.Services.AddScoped<ICustomerWalletTopUpService, CustomerWalletTopUpService>();
+builder.Services.AddScoped<IAdminPaymentVerificationService, AdminPaymentVerificationService>();
 
 
 

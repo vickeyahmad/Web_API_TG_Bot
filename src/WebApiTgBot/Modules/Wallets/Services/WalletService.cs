@@ -248,10 +248,12 @@ public class WalletService : IWalletService
         string? createdByUserId,
         CancellationToken ct)
     {
+        var ownsTransaction = false;
         IDbContextTransaction? tx = null;
-        if (_db.Database.IsRelational())
+        if (_db.Database.IsRelational() && _db.Database.CurrentTransaction == null)
         {
             tx = await _db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            ownsTransaction = true;
         }
 
         try
@@ -259,9 +261,15 @@ public class WalletService : IWalletService
             Wallet? lockedWallet;
             if (_db.Database.IsRelational())
             {
-                // Clear any pre-existing tracked entity so FromSqlInterpolated reads
-                // the fresh, committed database state locked under SELECT ... FOR UPDATE
-                _db.ChangeTracker.Clear();
+                // Detach any pre-existing tracked Wallet instance so FromSqlInterpolated reads
+                // the fresh, committed database state locked under SELECT ... FOR UPDATE,
+                // without clearing other tracked entities (e.g. Payment in an outer transaction).
+                var trackedWallet = _db.ChangeTracker.Entries<Wallet>().FirstOrDefault(e => e.Entity.Id == walletId);
+                if (trackedWallet != null)
+                {
+                    trackedWallet.State = EntityState.Detached;
+                }
+
                 lockedWallet = await _db.Wallets
                     .FromSqlInterpolated($"SELECT * FROM \"Wallets\" WHERE \"Id\" = {walletId} FOR UPDATE")
                     .FirstOrDefaultAsync(ct);
@@ -273,7 +281,7 @@ public class WalletService : IWalletService
 
             if (lockedWallet == null)
             {
-                if (tx != null) await tx.RollbackAsync(ct);
+                if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
                 return WalletOperationResult.NotFound($"Wallet with ID {walletId} was not found.");
             }
 
@@ -289,11 +297,11 @@ public class WalletService : IWalletService
                     existingTx.Amount == amount &&
                     string.Equals(existingTx.Currency, currency, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (tx != null) await tx.RollbackAsync(ct);
+                    if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
                     return WalletOperationResult.Succeeded(lockedWallet, existingTx, isReplay: true);
                 }
 
-                if (tx != null) await tx.RollbackAsync(ct);
+                if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
                 return WalletOperationResult.Conflict(
                     $"Operation key '{operationKey}' was already used for a different transaction.");
             }
@@ -301,7 +309,7 @@ public class WalletService : IWalletService
             // 3. Strict Currency Validation
             if (!string.Equals(lockedWallet.Currency, currency, StringComparison.OrdinalIgnoreCase))
             {
-                if (tx != null) await tx.RollbackAsync(ct);
+                if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
                 return WalletOperationResult.InvalidCurrency(
                     $"Wallet currency is '{lockedWallet.Currency}', but request specified '{currency}'. Cross-currency operations are prohibited.");
             }
@@ -309,7 +317,7 @@ public class WalletService : IWalletService
             // 4. Balance Verification for Debits
             if (transactionType == WalletTransactionType.Debit && lockedWallet.Balance < amount)
             {
-                if (tx != null) await tx.RollbackAsync(ct);
+                if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
                 return WalletOperationResult.InsufficientFunds(lockedWallet.Balance, amount, lockedWallet.Currency);
             }
 
@@ -344,7 +352,7 @@ public class WalletService : IWalletService
             // 7. Commit atomically
             await _db.SaveChangesAsync(ct);
 
-            if (tx != null)
+            if (ownsTransaction && tx != null)
             {
                 await tx.CommitAsync(ct);
             }
@@ -357,12 +365,14 @@ public class WalletService : IWalletService
         }
         catch (DbUpdateException ex)
         {
-            if (tx != null) await tx.RollbackAsync(ct);
+            if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
 
             // In the event of a concurrent race where the unique index caught a duplicate OperationKey
             if (ex.InnerException is PostgresException pgEx && pgEx.SqlState == "23505")
             {
-                _db.ChangeTracker.Clear();
+                var trackedWallet = _db.ChangeTracker.Entries<Wallet>().FirstOrDefault(e => e.Entity.Id == walletId);
+                if (trackedWallet != null) trackedWallet.State = EntityState.Detached;
+
                 var existingTx = await _db.WalletTransactions
                     .FirstOrDefaultAsync(t => t.WalletId == walletId && t.OperationKey == operationKey, ct);
 
@@ -386,13 +396,13 @@ public class WalletService : IWalletService
         }
         catch (Exception ex)
         {
-            if (tx != null) await tx.RollbackAsync(ct);
+            if (ownsTransaction && tx != null) await tx.RollbackAsync(ct);
             _logger.LogError(ex, "Unexpected error during wallet mutation for wallet {WalletId}", walletId);
             throw;
         }
         finally
         {
-            if (tx != null)
+            if (ownsTransaction && tx != null)
             {
                 await tx.DisposeAsync();
             }

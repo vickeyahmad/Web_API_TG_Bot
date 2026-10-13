@@ -427,7 +427,7 @@ public class CatalogApiTests : IClassFixture<CustomWebApplicationFactory>
             Vendor = vendor,
             Product = product,
             ExternalProductId = secretExternalId,
-            VendorCost = 12.5000m,
+            VendorCost = 98.7654m,
             VendorCostCurrency = "USDT",
             IsAvailable = true,
             Priority = 1
@@ -458,7 +458,7 @@ public class CatalogApiTests : IClassFixture<CustomWebApplicationFactory>
             Assert.DoesNotContain(secretExternalId, json, StringComparison.OrdinalIgnoreCase);
 
             // Vendor costs and currencies must never appear
-            Assert.DoesNotContain("12.5", json);
+            Assert.DoesNotContain("98.7654", json);
             Assert.DoesNotContain("USDT", json);
 
             // Keys containing "vendor" must not appear in the public payload
