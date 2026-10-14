@@ -392,8 +392,20 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ConfirmedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeliveryChannel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("DeliveryReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("ExternalVendorOrderId")
                         .HasMaxLength(100)
@@ -405,6 +417,14 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
 
                     b.Property<long>("FulfillmentId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("InitiatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("SafeErrorSummary")
                         .HasMaxLength(500)
@@ -429,6 +449,10 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.HasIndex("AttemptKey")
                         .IsUnique();
 
+                    b.HasIndex("ConfirmedByUserId");
+
+                    b.HasIndex("InitiatedByUserId");
+
                     b.HasIndex("Status");
 
                     b.HasIndex("VendorProductId");
@@ -440,6 +464,48 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_FulfillmentAttempts_AttemptNumber_Positive", "\"AttemptNumber\" > 0");
                         });
+                });
+
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.FulfillmentStatusHistory", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChangedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<long>("FulfillmentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("NewStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("PreviousStatus")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangedAt");
+
+                    b.HasIndex("ChangedByUserId");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.ToTable("FulfillmentStatusHistories", (string)null);
                 });
 
             modelBuilder.Entity("WebApiTgBot.Modules.Identity.Models.ApplicationRole", b =>
@@ -1133,20 +1199,52 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.FulfillmentAttempt", b =>
                 {
+                    b.HasOne("WebApiTgBot.Modules.Identity.Models.ApplicationUser", "ConfirmedByUser")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", "Fulfillment")
                         .WithMany("Attempts")
                         .HasForeignKey("FulfillmentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("WebApiTgBot.Modules.Identity.Models.ApplicationUser", "InitiatedByUser")
+                        .WithMany()
+                        .HasForeignKey("InitiatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("WebApiTgBot.Modules.Catalog.Models.VendorProduct", "VendorProduct")
                         .WithMany("FulfillmentAttempts")
                         .HasForeignKey("VendorProductId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.Navigation("ConfirmedByUser");
+
                     b.Navigation("Fulfillment");
 
+                    b.Navigation("InitiatedByUser");
+
                     b.Navigation("VendorProduct");
+                });
+
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.FulfillmentStatusHistory", b =>
+                {
+                    b.HasOne("WebApiTgBot.Modules.Identity.Models.ApplicationUser", "ChangedByUser")
+                        .WithMany()
+                        .HasForeignKey("ChangedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", "Fulfillment")
+                        .WithMany("StatusHistory")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ChangedByUser");
+
+                    b.Navigation("Fulfillment");
                 });
 
             modelBuilder.Entity("WebApiTgBot.Modules.Orders.Models.Order", b =>
@@ -1291,6 +1389,8 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
             modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", b =>
                 {
                     b.Navigation("Attempts");
+
+                    b.Navigation("StatusHistory");
                 });
 
             modelBuilder.Entity("WebApiTgBot.Modules.Orders.Models.Order", b =>

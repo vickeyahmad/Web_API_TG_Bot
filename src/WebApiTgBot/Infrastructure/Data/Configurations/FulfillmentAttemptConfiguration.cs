@@ -52,6 +52,26 @@ public class FulfillmentAttemptConfiguration : IEntityTypeConfiguration<Fulfillm
         builder.Property(fa => fa.CompletedAt)
             .IsRequired(false);
 
+        builder.Property(fa => fa.InitiatedByUserId)
+            .HasMaxLength(450)
+            .IsRequired(false);
+
+        builder.Property(fa => fa.ConfirmedByUserId)
+            .HasMaxLength(450)
+            .IsRequired(false);
+
+        builder.Property(fa => fa.DeliveryReference)
+            .HasMaxLength(100)
+            .IsRequired(false);
+
+        builder.Property(fa => fa.DeliveryChannel)
+            .HasMaxLength(50)
+            .IsRequired(false);
+
+        builder.Property(fa => fa.Notes)
+            .HasMaxLength(500)
+            .IsRequired(false);
+
         // Foreign key to Fulfillment
         builder.HasOne(fa => fa.Fulfillment)
             .WithMany(f => f.Attempts)
@@ -63,6 +83,17 @@ public class FulfillmentAttemptConfiguration : IEntityTypeConfiguration<Fulfillm
             .WithMany(vp => vp.FulfillmentAttempts)
             .HasForeignKey(fa => fa.VendorProductId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // Foreign keys to AspNetUsers for admin attribution
+        builder.HasOne(fa => fa.InitiatedByUser)
+            .WithMany()
+            .HasForeignKey(fa => fa.InitiatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(fa => fa.ConfirmedByUser)
+            .WithMany()
+            .HasForeignKey(fa => fa.ConfirmedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // Unique indexes
         builder.HasIndex(fa => fa.AttemptKey)

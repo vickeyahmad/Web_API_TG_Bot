@@ -37,4 +37,5 @@ public class Fulfillment
     public Order Order { get; set; } = null!;
     public OrderItem OrderItem { get; set; } = null!;
     public ICollection<FulfillmentAttempt> Attempts { get; set; } = new List<FulfillmentAttempt>();
+    public ICollection<FulfillmentStatusHistory> StatusHistory { get; set; } = new List<FulfillmentStatusHistory>();
 }

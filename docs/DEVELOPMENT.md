@@ -376,6 +376,25 @@
 - **Automated Tests**:
   - 223 total tests passing (202 existing + 21 new Milestone 5B Fulfillment Foundation, Relationship, Concurrency & Unloaded Navigation Property tests, 0 failed, 0 skipped).
 
+### Milestone 5C — Controlled Manual Fulfillment & Delivery Tracking
+- **Administrator Manual Fulfillment Operations**:
+  - `POST /api/admin/orders/{orderNumber}/items/{orderItemId}/manual-fulfillment/start` — starts manual fulfillment for an eligible line item on a `Processing` order. Creates a tracked manual `FulfillmentAttempt` (`VendorProductId = null`, `Status = Submitted`), assigns `FulfillmentMethod.Manual`, transitions fulfillment to `InProgress`, records administrator attribution and `FulfillmentStatusHistory`.
+  - `POST /api/admin/orders/{orderNumber}/items/{orderItemId}/manual-fulfillment/complete` — records delivery confirmation after external delivery. Requires explicit `ConfirmDelivered = true`, safe external delivery reference, non-sensitive delivery channel, and optional operational notes. Sets `QuantityFulfilled = QuantityRequested`, transitions attempt to `Succeeded` and fulfillment to `Completed`, records `FulfillmentStatusHistory`, and completes the parent order if all line items are fulfilled.
+  - `GET /api/admin/orders/{orderNumber}/fulfillments` — retrieves safe overview of all line item fulfillments, attempts, and chronological status history for an order without exposing digital delivery secrets or raw supplier credentials.
+- **Architectural & Security Rules Enforced**:
+  - **Pre-Condition Boundaries**: Order must be in `Processing` status with verified matching `Paid` payment funds. Unpaid orders (`PendingPayment`) or un-processed orders (`Paid`) are strictly rejected.
+  - **Duplicate Delivery Prevention**: Blocked if an attempt is actively processing (`Submitted`) or if ANY prior attempt ended in an unresolved `Unknown` or `RequiresReconciliation` status. Supplier timeouts cannot be bypassed through the manual workflow.
+  - **Zero Secret Storage**: Digital delivery secrets (license keys, passwords, vouchers, tokens) are strictly excluded from database entities, audit notes, and API responses. Only safe evidence metadata (ticket IDs, delivery channel) is recorded.
+  - **Multi-Item Order Completion Invariant**: Completing one line item only completes the order if ALL line items on the order are fulfilled. Multi-item orders remain `Processing` until all items are completed.
+  - **Permanent Audit Trail (`FulfillmentStatusHistories`)**: Every status change is recorded with previous status, new status, timestamps, and acting administrator ID. Referential integrity enforces `DeleteBehavior.Restrict` on `Fulfillments` and `DeleteBehavior.SetNull` on `AspNetUsers`.
+  - **Production Safety Feature Gate**: Master toggle `ManualFulfillmentOptions.Enabled = false` by default; mutating APIs return `403 Forbidden` until explicitly enabled by server configuration.
+  - **PostgreSQL Concurrency & Invariant Lock Ordering**: Order row locked first (`SELECT ... FOR UPDATE`), ensuring simultaneous completions or starts resolve with exactly one winner and zero duplicate transitions.
+  - **Customer Privacy**: Customer order APIs strictly exclude fulfillment attempt details, delivery references, and vendor data.
+- **Database Migration**:
+  - Migration `20261014074601_AddManualFulfillmentAndAuditHistory` created and applied to `webapitgbot_dev` and `webapitgbot_test`.
+- **Automated Tests**:
+  - 245 total tests passing (223 existing + 22 new Milestone 5C Manual Fulfillment, Delivery Tracking & Multi-Item Order Completion tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -383,8 +402,8 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (223 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation, Vendor Order Preparation & Navigation Property Safeguard) |
-| Docker PostgreSQL | ✅ Migration `AddCentralFulfillmentFoundation` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
+| `dotnet test` (245 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation + 22 Controlled Manual Fulfillment & Delivery Tracking) |
+| Docker PostgreSQL | ✅ Migrations `AddCentralFulfillmentFoundation` and `AddManualFulfillmentAndAuditHistory` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
 | Database migrations applied | ✅ Up to date (No pending model changes) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
@@ -423,7 +442,7 @@
 | Wallet atomic mutation & lock | ✅ `SELECT ... FOR UPDATE` row locking prevents lost updates and concurrent overspending |
 | Permanent ledger retention | ✅ `BalanceBefore`/`BalanceAfter` recorded; cascading deletes prohibited (`Restrict`) |
 | Durable wallet idempotency | ✅ Replaying identical mutation returns original transaction; conflicting reuse returns 409 |
-| Feature gate safety | ✅ `POST /api/customer/wallet/topups`, `POST /api/admin/payments/manual/{pNumber}/approve`, and `POST /api/customer/orders/{orderNumber}/pay-with-wallet` return 403 Forbidden when disabled by default |
+| Feature gate safety | ✅ `POST /api/customer/wallet/topups`, `POST /api/admin/payments/manual/{pNumber}/approve`, `POST /api/customer/orders/{orderNumber}/pay-with-wallet`, and `POST /api/admin/orders/{orderNumber}/items/{orderItemId}/manual-fulfillment/*` return 403 Forbidden when disabled by default |
 | Top-up initiation & limits | ✅ Validates min/max amounts, supported methods, initial Pending status, wallet untouched |
 | Customer proof submission | ✅ Records customer TID & transfer date, leaves status Pending, wallet untouched |
 | Admin top-up rejection | ✅ Transitions to Failed, logs reason & admin identity, wallet untouched |
@@ -441,7 +460,7 @@
 | Debit durable operation key | ✅ Debited via stable `WALLET_ORDER:{order.Id}`; replays return existing confirmation without double-debiting |
 | Read-only wallet & ledger | ✅ `GET /api/customer/wallet` and `GET /api/customer/wallet/transactions` return accurate balances & audit records |
 | Insufficient funds rollback | ✅ Clean rollback of balance, payment, and order status with zero financial mutation |
-| Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter` and `AutoValidateAntiforgeryTokenAttribute` |
+| Rate limiting & CSRF | ✅ Enforced via `CustomerOrderLimiter`, `AdminOrderLimiter`, and `AutoValidateAntiforgeryTokenAttribute` |
 | Supplier privacy | ✅ 100% hidden from customer endpoints and responses |
 | Admin order listing & filtering | ✅ `GET /api/admin/orders` supports pagination, multi-criteria filtering, and newest-first ordering |
 | Admin order detail snapshot | ✅ `GET /api/admin/orders/{orderNumber}` returns line item price snapshots, chronological history & order payments |
@@ -461,13 +480,18 @@
 | Zero financial mutation | ✅ Fulfillment initialization and attempt recording leave customer wallets, ledgers, and payments 100% untouched |
 | Non-destructive delete protection | ✅ PostgreSQL foreign key `ON DELETE RESTRICT` prevents cascading deletion of orders, items, or fulfillments |
 | Customer vendor privacy | ✅ Customer DTOs and APIs strictly hide all vendor mappings, supplier costs, and external vendor order IDs |
+| Manual fulfillment start API | ✅ `POST /api/admin/orders/{orderNumber}/items/{orderItemId}/manual-fulfillment/start` starts tracked manual attempt |
+| Manual fulfillment complete API | ✅ `POST /api/admin/orders/{orderNumber}/items/{orderItemId}/manual-fulfillment/complete` records delivery confirmation |
+| Multi-item order completion guard | ✅ Order completed only when ALL line items are fulfilled; multi-item orders remain Processing until all items are done |
+| Permanent fulfillment audit trail | ✅ `FulfillmentStatusHistories` logs all status transitions with actor and timestamps |
+| Manual fulfillment feature gate | ✅ Master toggle `ManualFulfillmentOptions.Enabled = false` by default; live APIs return 403 Forbidden |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 5C**: Automated & Assisted Supplier/Vendor API Integration & Fulfillment Dispatch.
+- **Milestone 5D**: Automated & Assisted Supplier/Vendor API Integration & Fulfillment Dispatch.
 
 ---
 
@@ -477,4 +501,5 @@
 - Never put passwords or secrets in source code.
 - Never push to GitHub without owner permission.
 - Run `dotnet build` and `dotnet test` after every change.
+
 

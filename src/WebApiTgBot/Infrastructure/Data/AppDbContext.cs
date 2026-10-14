@@ -34,6 +34,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<WalletTransaction> WalletTransactions => Set<WalletTransaction>();
     public DbSet<Fulfillment> Fulfillments => Set<Fulfillment>();
     public DbSet<FulfillmentAttempt> FulfillmentAttempts => Set<FulfillmentAttempt>();
+    public DbSet<FulfillmentStatusHistory> FulfillmentStatusHistories => Set<FulfillmentStatusHistory>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
 using WebApiTgBot.Infrastructure.Data;
 using WebApiTgBot.Modules.Catalog.Services;
+using WebApiTgBot.Modules.Fulfillments.Options;
 using WebApiTgBot.Modules.Fulfillments.Services;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Identity.Services;
@@ -257,6 +258,7 @@ builder.Services.AddCors(options =>
 // ── Application Options ───────────────────────────────────────────────────────
 builder.Services.Configure<WalletTopUpOptions>(builder.Configuration.GetSection(WalletTopUpOptions.SectionName));
 builder.Services.Configure<WalletPurchaseOptions>(builder.Configuration.GetSection(WalletPurchaseOptions.SectionName));
+builder.Services.Configure<ManualFulfillmentOptions>(builder.Configuration.GetSection(ManualFulfillmentOptions.SectionName));
 
 // ── Application Services ──────────────────────────────────────────────────────
 builder.Services.AddScoped<ICatalogService, CatalogService>();

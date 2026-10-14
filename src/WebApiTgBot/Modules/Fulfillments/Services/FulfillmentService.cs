@@ -1,9 +1,12 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using WebApiTgBot.Infrastructure.Data;
 using WebApiTgBot.Modules.Fulfillments.Models;
 using WebApiTgBot.Modules.Fulfillments.Models.DTOs;
+using WebApiTgBot.Modules.Fulfillments.Options;
 using WebApiTgBot.Modules.Orders.Models;
 using WebApiTgBot.Modules.Payments.Models;
 
@@ -17,11 +20,16 @@ public class FulfillmentService : IFulfillmentService
 {
     private readonly AppDbContext _db;
     private readonly ILogger<FulfillmentService> _logger;
+    private readonly IOptions<ManualFulfillmentOptions> _manualFulfillmentOptions;
 
-    public FulfillmentService(AppDbContext db, ILogger<FulfillmentService> logger)
+    public FulfillmentService(
+        AppDbContext db,
+        ILogger<FulfillmentService> logger,
+        IOptions<ManualFulfillmentOptions>? manualFulfillmentOptions = null)
     {
         _db = db;
         _logger = logger;
+        _manualFulfillmentOptions = manualFulfillmentOptions ?? Microsoft.Extensions.Options.Options.Create(new ManualFulfillmentOptions());
     }
 
     /// <inheritdoc />
@@ -351,5 +359,606 @@ public class FulfillmentService : IFulfillmentService
     public bool CanFallbackAfterAttempt(FulfillmentAttemptStatus status)
     {
         return FulfillmentAttemptRules.CanFallbackToNextVendor(status);
+    }
+
+    /// <inheritdoc />
+    public async Task<ManualFulfillmentOperationResult> StartManualFulfillmentAsync(
+        string orderNumber,
+        long orderItemId,
+        string adminUserId,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Production safety feature gate
+        if (!_manualFulfillmentOptions.Value.Enabled)
+        {
+            _logger.LogWarning("Manual fulfillment start rejected: feature is disabled by server configuration.");
+            return ManualFulfillmentOperationResult.Forbidden("Manual fulfillment is currently disabled by server configuration.");
+        }
+
+        if (string.IsNullOrWhiteSpace(adminUserId))
+        {
+            return ManualFulfillmentOperationResult.BadRequest("Admin user ID is required.");
+        }
+
+        await using var tx = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            : null;
+
+        try
+        {
+            // 2. Lock Order row to maintain invariant lock order (Order first)
+            Order? order;
+            if (_db.Database.IsRelational())
+            {
+                order = await _db.Orders
+                    .FromSqlInterpolated($"SELECT * FROM \"Orders\" WHERE \"OrderNumber\" = {orderNumber.Trim()} FOR UPDATE")
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+            else
+            {
+                order = await _db.Orders
+                    .FirstOrDefaultAsync(o => o.OrderNumber == orderNumber.Trim(), cancellationToken);
+            }
+
+            if (order == null)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.NotFound($"Order '{orderNumber}' was not found.");
+            }
+
+            // 3. Order status check: Order must be in Processing status
+            if (order.Status == OrderStatus.PendingPayment)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.BadRequest($"Cannot start manual fulfillment for an unpaid order. Order '{orderNumber}' is in PendingPayment status.");
+            }
+
+            if (order.Status == OrderStatus.Paid)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Order '{orderNumber}' is in Paid status. Administrator must start order processing before initiating manual fulfillment.");
+            }
+
+            if (order.Status != OrderStatus.Processing)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Cannot start manual fulfillment for order '{orderNumber}' in '{order.Status}' status. Order must be in Processing status.");
+            }
+
+            // 4. Verify trusted Paid OrderPurchase payment record matching order total and currency
+            var paidPayment = await _db.Payments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.OrderId == order.Id &&
+                                          p.Purpose == PaymentPurpose.OrderPurchase &&
+                                          p.Status == PaymentStatus.Paid, cancellationToken);
+
+            if (paidPayment == null)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.BadRequest($"Order '{orderNumber}' has no verified Paid payment record.");
+            }
+
+            if (paidPayment.Amount != order.TotalAmount || paidPayment.Currency != order.Currency)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.BadRequest($"Payment verification failed: Paid amount ({paidPayment.Amount} {paidPayment.Currency}) does not match order total ({order.TotalAmount} {order.Currency}).");
+            }
+
+            // 5. Verify purchased OrderItem belongs to the specified Order
+            var orderItem = await _db.OrderItems
+                .Include(oi => oi.Product)
+                .FirstOrDefaultAsync(oi => oi.Id == orderItemId && oi.OrderId == order.Id, cancellationToken);
+
+            if (orderItem == null)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.NotFound($"Order item {orderItemId} does not belong to order '{orderNumber}'.");
+            }
+
+            // 6. Safe initialization / retrieval of Fulfillment record for this line item
+            var fulfillment = await _db.Fulfillments
+                .Include(f => f.Attempts)
+                .FirstOrDefaultAsync(f => f.OrderItemId == orderItemId, cancellationToken);
+
+            if (fulfillment == null)
+            {
+                fulfillment = new Fulfillment
+                {
+                    OrderId = order.Id,
+                    OrderItemId = orderItem.Id,
+                    Status = FulfillmentStatus.NotStarted,
+                    FulfillmentMethod = FulfillmentMethod.Manual,
+                    QuantityRequested = orderItem.Quantity,
+                    QuantityFulfilled = 0,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.Fulfillments.Add(fulfillment);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            // 7. Prevent duplicate delivery: Examine existing fulfillment state and attempts
+            if (fulfillment.Status == FulfillmentStatus.Completed)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Fulfillment for order item {orderItemId} is already Completed.");
+            }
+
+            if (fulfillment.Status == FulfillmentStatus.Failed)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Fulfillment for order item {orderItemId} is in a terminal Failed status.");
+            }
+
+            // Check existing attempts
+            if (fulfillment.Attempts.Any())
+            {
+                // CRITICAL SAFEGUARD: Reject if ANY attempt has unconfirmed status (Unknown or RequiresReconciliation)
+                if (fulfillment.Attempts.Any(a => a.Status == FulfillmentAttemptStatus.Unknown || a.Status == FulfillmentAttemptStatus.RequiresReconciliation))
+                {
+                    if (tx != null) await tx.RollbackAsync(cancellationToken);
+                    _logger.LogWarning("Manual fulfillment start blocked: Fulfillment {FulfillmentId} has an unresolved attempt with unconfirmed outcome.", fulfillment.Id);
+                    return ManualFulfillmentOperationResult.Conflict("Cannot start manual fulfillment: A previous supplier attempt has an unconfirmed status (Unknown or RequiresReconciliation). Status reconciliation or administrative investigation is strictly required before any subsequent fulfillment action to prevent duplicate delivery.");
+                }
+
+                // Reject if any attempt is actively processing (Submitted)
+                if (fulfillment.Attempts.Any(a => a.Status == FulfillmentAttemptStatus.Submitted))
+                {
+                    if (tx != null) await tx.RollbackAsync(cancellationToken);
+                    return ManualFulfillmentOperationResult.Conflict("Cannot start manual fulfillment: An attempt is already actively processing for this line item.");
+                }
+
+                // Reject if any attempt already succeeded
+                if (fulfillment.Attempts.Any(a => a.Status == FulfillmentAttemptStatus.Succeeded))
+                {
+                    if (tx != null) await tx.RollbackAsync(cancellationToken);
+                    return ManualFulfillmentOperationResult.Conflict("Cannot start manual fulfillment: A previous attempt has already succeeded for this line item.");
+                }
+            }
+
+            // 8. Validate state transition for Fulfillment
+            var previousStatus = fulfillment.Status;
+            if (!FulfillmentStatusTransitions.CanTransition(previousStatus, FulfillmentStatus.InProgress))
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Transition from '{previousStatus}' to 'InProgress' is not permitted by fulfillment lifecycle rules.");
+            }
+
+            // 9. Assign FulfillmentMethod.Manual, set Status = InProgress
+            fulfillment.FulfillmentMethod = FulfillmentMethod.Manual;
+            fulfillment.Status = FulfillmentStatus.InProgress;
+            fulfillment.UpdatedAt = DateTime.UtcNow;
+
+            // 10. Create tracked manual FulfillmentAttempt with VendorProductId = null
+            var nextNumber = (fulfillment.Attempts.Max(a => (int?)a.AttemptNumber) ?? 0) + 1;
+            var attemptKey = $"ATT-{fulfillment.Id}-{nextNumber}";
+            var now = DateTime.UtcNow;
+
+            var attempt = new FulfillmentAttempt
+            {
+                FulfillmentId = fulfillment.Id,
+                AttemptNumber = nextNumber,
+                AttemptKey = attemptKey,
+                VendorProductId = null, // Strictly null for manual fulfillment!
+                Status = FulfillmentAttemptStatus.Submitted,
+                InitiatedByUserId = adminUserId,
+                CreatedAt = now,
+                UpdatedAt = now,
+                SubmittedAt = now
+            };
+            _db.FulfillmentAttempts.Add(attempt);
+
+            // 11. Record FulfillmentStatusHistory
+            var statusHistory = new FulfillmentStatusHistory
+            {
+                FulfillmentId = fulfillment.Id,
+                PreviousStatus = previousStatus,
+                NewStatus = FulfillmentStatus.InProgress,
+                Reason = "Administrator started manual fulfillment.",
+                ChangedByUserId = adminUserId,
+                ChangedAt = now
+            };
+            _db.FulfillmentStatusHistories.Add(statusHistory);
+
+            await _db.SaveChangesAsync(cancellationToken);
+            if (tx != null) await tx.CommitAsync(cancellationToken);
+
+            _logger.LogInformation("Administrator {AdminUserId} started manual fulfillment for Order {OrderNumber}, Item {OrderItemId}, Fulfillment {FulfillmentId}, Attempt {AttemptKey}.",
+                adminUserId, orderNumber, orderItemId, fulfillment.Id, attemptKey);
+
+            var dto = await BuildAdminFulfillmentDtoAsync(fulfillment.Id, cancellationToken);
+            return ManualFulfillmentOperationResult.Success(dto!, "Manual fulfillment started successfully.");
+        }
+        catch (Exception ex)
+        {
+            if (tx != null) await tx.RollbackAsync(cancellationToken);
+            _logger.LogError(ex, "Unexpected error starting manual fulfillment for Order {OrderNumber}, Item {OrderItemId}.", orderNumber, orderItemId);
+            return ManualFulfillmentOperationResult.BadRequest("An error occurred while starting manual fulfillment. Operation rolled back safely.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<ManualFulfillmentOperationResult> CompleteManualFulfillmentAsync(
+        string orderNumber,
+        long orderItemId,
+        string adminUserId,
+        AdminCompleteManualFulfillmentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Production safety feature gate
+        if (!_manualFulfillmentOptions.Value.Enabled)
+        {
+            _logger.LogWarning("Manual fulfillment complete rejected: feature is disabled by server configuration.");
+            return ManualFulfillmentOperationResult.Forbidden("Manual fulfillment is currently disabled by server configuration.");
+        }
+
+        if (string.IsNullOrWhiteSpace(adminUserId))
+        {
+            return ManualFulfillmentOperationResult.BadRequest("Admin user ID is required.");
+        }
+
+        // 2. Validate request parameters & sanitize text fields
+        if (!request.ConfirmDelivered)
+        {
+            return ManualFulfillmentOperationResult.BadRequest("Explicit confirmation of delivery (ConfirmDelivered = true) is strictly required.");
+        }
+
+        var deliveryRef = request.DeliveryReference?.Trim();
+        if (string.IsNullOrWhiteSpace(deliveryRef) || deliveryRef.Length < 3 || deliveryRef.Length > 100)
+        {
+            return ManualFulfillmentOperationResult.BadRequest("A valid external delivery reference or support ticket identifier between 3 and 100 characters is required.");
+        }
+
+        if (deliveryRef.Contains('<') || deliveryRef.Contains('>'))
+        {
+            return ManualFulfillmentOperationResult.BadRequest("DeliveryReference contains invalid characters.");
+        }
+
+        var deliveryChannel = request.DeliveryChannel?.Trim();
+        if (string.IsNullOrWhiteSpace(deliveryChannel) || deliveryChannel.Length < 2 || deliveryChannel.Length > 50)
+        {
+            return ManualFulfillmentOperationResult.BadRequest("A valid non-sensitive delivery channel identifier between 2 and 50 characters is required.");
+        }
+
+        if (deliveryChannel.Contains('<') || deliveryChannel.Contains('>'))
+        {
+            return ManualFulfillmentOperationResult.BadRequest("DeliveryChannel contains invalid characters.");
+        }
+
+        var notes = request.Notes?.Trim();
+        if (notes != null && (notes.Contains('<') || notes.Contains('>')))
+        {
+            return ManualFulfillmentOperationResult.BadRequest("Notes contain invalid characters.");
+        }
+
+        await using var tx = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            : null;
+
+        try
+        {
+            // 3. Lock Order row
+            Order? order;
+            if (_db.Database.IsRelational())
+            {
+                order = await _db.Orders
+                    .FromSqlInterpolated($"SELECT * FROM \"Orders\" WHERE \"OrderNumber\" = {orderNumber.Trim()} FOR UPDATE")
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+            else
+            {
+                order = await _db.Orders
+                    .FirstOrDefaultAsync(o => o.OrderNumber == orderNumber.Trim(), cancellationToken);
+            }
+
+            if (order == null)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.NotFound($"Order '{orderNumber}' was not found.");
+            }
+
+            if (order.Status != OrderStatus.Processing)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                if (order.Status == OrderStatus.Completed)
+                {
+                    return ManualFulfillmentOperationResult.Conflict($"Order '{orderNumber}' is already Completed.");
+                }
+                return ManualFulfillmentOperationResult.Conflict($"Cannot complete fulfillment for order '{orderNumber}' in '{order.Status}' status. Order must be in Processing status.");
+            }
+
+            // 4. Verify trusted Paid OrderPurchase payment remains valid
+            var paidPayment = await _db.Payments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.OrderId == order.Id &&
+                                          p.Purpose == PaymentPurpose.OrderPurchase &&
+                                          p.Status == PaymentStatus.Paid, cancellationToken);
+
+            if (paidPayment == null || paidPayment.Amount != order.TotalAmount || paidPayment.Currency != order.Currency)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.BadRequest($"Verified payment validation failed for order '{orderNumber}'.");
+            }
+
+            // 5. Verify purchased OrderItem belongs to the Order
+            var orderItem = await _db.OrderItems
+                .FirstOrDefaultAsync(oi => oi.Id == orderItemId && oi.OrderId == order.Id, cancellationToken);
+
+            if (orderItem == null)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.NotFound($"Order item {orderItemId} does not belong to order '{orderNumber}'.");
+            }
+
+            // 6. Query Fulfillment with attempts
+            var fulfillment = await _db.Fulfillments
+                .Include(f => f.Attempts)
+                .FirstOrDefaultAsync(f => f.OrderItemId == orderItemId, cancellationToken);
+
+            if (fulfillment == null)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.NotFound($"Fulfillment record not found for order item {orderItemId}. Manual fulfillment must be started before it can be completed.");
+            }
+
+            if (fulfillment.Status == FulfillmentStatus.Completed)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Fulfillment for order item {orderItemId} is already Completed.");
+            }
+
+            if (fulfillment.Status != FulfillmentStatus.InProgress)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict($"Cannot complete fulfillment in '{fulfillment.Status}' status. Fulfillment must be InProgress.");
+            }
+
+            // 7. Verify no unresolved vendor attempts exist
+            if (fulfillment.Attempts.Any(a => a.Status == FulfillmentAttemptStatus.Unknown || a.Status == FulfillmentAttemptStatus.RequiresReconciliation))
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.Conflict("Cannot complete manual fulfillment: A previous supplier attempt has an unconfirmed status (Unknown or RequiresReconciliation). Status reconciliation is strictly required before completion.");
+            }
+
+            // 8. Find active manual attempt
+            var activeAttempt = fulfillment.Attempts.OrderByDescending(a => a.AttemptNumber).FirstOrDefault();
+            if (activeAttempt == null || activeAttempt.VendorProductId != null || activeAttempt.Status != FulfillmentAttemptStatus.Submitted)
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                return ManualFulfillmentOperationResult.BadRequest("No active manual fulfillment attempt in Submitted status was found for this line item.");
+            }
+
+            // 9. Update the manual attempt to Succeeded
+            var now = DateTime.UtcNow;
+            activeAttempt.Status = FulfillmentAttemptStatus.Succeeded;
+            activeAttempt.ConfirmedByUserId = adminUserId;
+            activeAttempt.DeliveryReference = deliveryRef;
+            activeAttempt.DeliveryChannel = deliveryChannel;
+            activeAttempt.Notes = notes;
+            activeAttempt.CompletedAt = now;
+            activeAttempt.UpdatedAt = now;
+
+            // 10. Update Fulfillment to Completed & set QuantityFulfilled
+            var previousFulfillmentStatus = fulfillment.Status;
+            fulfillment.QuantityFulfilled = fulfillment.QuantityRequested;
+            fulfillment.Status = FulfillmentStatus.Completed;
+            fulfillment.CompletedAt = now;
+            fulfillment.UpdatedAt = now;
+
+            // 11. Record FulfillmentStatusHistory
+            var statusHistory = new FulfillmentStatusHistory
+            {
+                FulfillmentId = fulfillment.Id,
+                PreviousStatus = previousFulfillmentStatus,
+                NewStatus = FulfillmentStatus.Completed,
+                Reason = $"Manual delivery confirmed via {deliveryChannel}. Ref: {deliveryRef}",
+                ChangedByUserId = adminUserId,
+                ChangedAt = now
+            };
+            _db.FulfillmentStatusHistories.Add(statusHistory);
+
+            // 12. Order Completion Logic (Section 9):
+            // Check every purchased item on this order
+            var allItems = await _db.OrderItems
+                .AsNoTracking()
+                .Where(oi => oi.OrderId == order.Id)
+                .ToListAsync(cancellationToken);
+
+            var allItemIds = allItems.Select(oi => oi.Id).ToList();
+
+            var allFulfillments = await _db.Fulfillments
+                .Where(f => allItemIds.Contains(f.OrderItemId))
+                .ToListAsync(cancellationToken);
+
+            bool allItemsCompleted = allItems.All(item =>
+            {
+                if (item.Id == orderItemId) return true; // currently being marked Completed
+                var otherFulfillment = allFulfillments.FirstOrDefault(f => f.OrderItemId == item.Id);
+                return otherFulfillment != null && otherFulfillment.Status == FulfillmentStatus.Completed;
+            });
+
+            if (allItemsCompleted)
+            {
+                var previousOrderStatus = order.Status;
+                order.Status = OrderStatus.Completed;
+                order.UpdatedAt = now;
+
+                var orderHistory = new OrderStatusHistory
+                {
+                    OrderId = order.Id,
+                    PreviousStatus = previousOrderStatus,
+                    NewStatus = OrderStatus.Completed,
+                    Reason = "All line items successfully fulfilled via manual delivery. Order completed.",
+                    ChangedByUserId = adminUserId,
+                    ChangedAt = now
+                };
+                _db.OrderStatusHistories.Add(orderHistory);
+
+                _logger.LogInformation("Order {OrderNumber} marked Completed: all {ItemCount} line items fulfilled.", orderNumber, allItems.Count);
+            }
+            else
+            {
+                _logger.LogInformation("Order {OrderNumber} remains in Processing status: not all line items are fulfilled yet.", orderNumber);
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            if (tx != null) await tx.CommitAsync(cancellationToken);
+
+            _logger.LogInformation("Administrator {AdminUserId} completed manual fulfillment for Order {OrderNumber}, Item {OrderItemId}, Fulfillment {FulfillmentId}.",
+                adminUserId, orderNumber, orderItemId, fulfillment.Id);
+
+            var dto = await BuildAdminFulfillmentDtoAsync(fulfillment.Id, cancellationToken);
+            return ManualFulfillmentOperationResult.Success(dto!, "Manual fulfillment completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            if (tx != null) await tx.RollbackAsync(cancellationToken);
+            _logger.LogError(ex, "Unexpected error completing manual fulfillment for Order {OrderNumber}, Item {OrderItemId}.", orderNumber, orderItemId);
+            return ManualFulfillmentOperationResult.BadRequest("An error occurred while completing manual fulfillment. Operation rolled back safely.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminOrderFulfillmentsDto?> GetOrderFulfillmentsAsync(string orderNumber, CancellationToken cancellationToken = default)
+    {
+        var order = await _db.Orders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(o => o.OrderNumber == orderNumber.Trim(), cancellationToken);
+
+        if (order == null)
+        {
+            return null;
+        }
+
+        var fulfillments = await _db.Fulfillments
+            .AsNoTracking()
+            .Include(f => f.OrderItem)
+            .Include(f => f.Attempts)
+                .ThenInclude(a => a.VendorProduct)
+                    .ThenInclude(vp => vp!.Vendor)
+            .Include(f => f.StatusHistory)
+            .Where(f => f.OrderId == order.Id)
+            .OrderBy(f => f.OrderItemId)
+            .ToListAsync(cancellationToken);
+
+        var fulfillmentDtos = fulfillments.Select(f => new AdminFulfillmentDto
+        {
+            FulfillmentId = f.Id,
+            OrderId = f.OrderId,
+            OrderItemId = f.OrderItemId,
+            ProductSku = f.OrderItem?.ProductSkuSnapshot ?? string.Empty,
+            ProductName = f.OrderItem?.ProductNameSnapshot ?? string.Empty,
+            UnitPrice = f.OrderItem?.UnitPriceSnapshot ?? 0m,
+            Currency = f.OrderItem?.Currency ?? "PKR",
+            QuantityRequested = f.QuantityRequested,
+            QuantityFulfilled = f.QuantityFulfilled,
+            Status = f.Status.ToString(),
+            FulfillmentMethod = f.FulfillmentMethod.ToString(),
+            CreatedAt = f.CreatedAt,
+            UpdatedAt = f.UpdatedAt,
+            CompletedAt = f.CompletedAt,
+            Attempts = f.Attempts.OrderBy(a => a.AttemptNumber).Select(a => new AdminFulfillmentAttemptDto
+            {
+                AttemptId = a.Id,
+                AttemptNumber = a.AttemptNumber,
+                AttemptKey = a.AttemptKey,
+                VendorProductId = a.VendorProductId,
+                VendorId = a.VendorProduct?.VendorId,
+                VendorName = a.VendorProduct?.Vendor?.InternalName,
+                Status = a.Status.ToString(),
+                ExternalVendorOrderId = a.ExternalVendorOrderId,
+                FailureCategory = a.FailureCategory?.ToString(),
+                SafeErrorSummary = a.SafeErrorSummary,
+                DeliveryReference = a.DeliveryReference,
+                DeliveryChannel = a.DeliveryChannel,
+                Notes = a.Notes,
+                InitiatedByUserId = a.InitiatedByUserId,
+                ConfirmedByUserId = a.ConfirmedByUserId,
+                CreatedAt = a.CreatedAt,
+                SubmittedAt = a.SubmittedAt,
+                CompletedAt = a.CompletedAt
+            }).ToList(),
+            StatusHistory = f.StatusHistory.OrderBy(h => h.ChangedAt).Select(h => new AdminFulfillmentStatusHistoryDto
+            {
+                Id = h.Id,
+                FulfillmentId = h.FulfillmentId,
+                PreviousStatus = h.PreviousStatus?.ToString(),
+                NewStatus = h.NewStatus.ToString(),
+                Reason = h.Reason,
+                ChangedByUserId = h.ChangedByUserId,
+                ChangedAt = h.ChangedAt
+            }).ToList()
+        }).ToList();
+
+        return new AdminOrderFulfillmentsDto
+        {
+            OrderNumber = order.OrderNumber,
+            OrderId = order.Id,
+            OrderStatus = order.Status.ToString(),
+            Fulfillments = fulfillmentDtos
+        };
+    }
+
+    private async Task<AdminFulfillmentDto?> BuildAdminFulfillmentDtoAsync(long fulfillmentId, CancellationToken cancellationToken)
+    {
+        var f = await _db.Fulfillments
+            .AsNoTracking()
+            .Include(f => f.OrderItem)
+            .Include(f => f.Attempts)
+                .ThenInclude(a => a.VendorProduct)
+                    .ThenInclude(vp => vp!.Vendor)
+            .Include(f => f.StatusHistory)
+            .FirstOrDefaultAsync(f => f.Id == fulfillmentId, cancellationToken);
+
+        if (f == null) return null;
+
+        return new AdminFulfillmentDto
+        {
+            FulfillmentId = f.Id,
+            OrderId = f.OrderId,
+            OrderItemId = f.OrderItemId,
+            ProductSku = f.OrderItem?.ProductSkuSnapshot ?? string.Empty,
+            ProductName = f.OrderItem?.ProductNameSnapshot ?? string.Empty,
+            UnitPrice = f.OrderItem?.UnitPriceSnapshot ?? 0m,
+            Currency = f.OrderItem?.Currency ?? "PKR",
+            QuantityRequested = f.QuantityRequested,
+            QuantityFulfilled = f.QuantityFulfilled,
+            Status = f.Status.ToString(),
+            FulfillmentMethod = f.FulfillmentMethod.ToString(),
+            CreatedAt = f.CreatedAt,
+            UpdatedAt = f.UpdatedAt,
+            CompletedAt = f.CompletedAt,
+            Attempts = f.Attempts.OrderBy(a => a.AttemptNumber).Select(a => new AdminFulfillmentAttemptDto
+            {
+                AttemptId = a.Id,
+                AttemptNumber = a.AttemptNumber,
+                AttemptKey = a.AttemptKey,
+                VendorProductId = a.VendorProductId,
+                VendorId = a.VendorProduct?.VendorId,
+                VendorName = a.VendorProduct?.Vendor?.InternalName,
+                Status = a.Status.ToString(),
+                ExternalVendorOrderId = a.ExternalVendorOrderId,
+                FailureCategory = a.FailureCategory?.ToString(),
+                SafeErrorSummary = a.SafeErrorSummary,
+                DeliveryReference = a.DeliveryReference,
+                DeliveryChannel = a.DeliveryChannel,
+                Notes = a.Notes,
+                InitiatedByUserId = a.InitiatedByUserId,
+                ConfirmedByUserId = a.ConfirmedByUserId,
+                CreatedAt = a.CreatedAt,
+                SubmittedAt = a.SubmittedAt,
+                CompletedAt = a.CompletedAt
+            }).ToList(),
+            StatusHistory = f.StatusHistory.OrderBy(h => h.ChangedAt).Select(h => new AdminFulfillmentStatusHistoryDto
+            {
+                Id = h.Id,
+                FulfillmentId = h.FulfillmentId,
+                PreviousStatus = h.PreviousStatus?.ToString(),
+                NewStatus = h.NewStatus.ToString(),
+                Reason = h.Reason,
+                ChangedByUserId = h.ChangedByUserId,
+                ChangedAt = h.ChangedAt
+            }).ToList()
+        };
     }
 }

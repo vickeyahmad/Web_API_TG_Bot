@@ -40,4 +40,24 @@ public interface IFulfillmentService
     /// Evaluates whether an automated fallback to another supplier is safe based on the attempt status.
     /// </summary>
     bool CanFallbackAfterAttempt(FulfillmentAttemptStatus status);
+
+    /// <summary>
+    /// Starts manual fulfillment for an eligible line item on a Processing order.
+    /// Verifies trusted payment, creates a tracked manual attempt (VendorProductId = null),
+    /// records administrator attribution and status history, and guards against duplicate delivery.
+    /// </summary>
+    Task<ManualFulfillmentOperationResult> StartManualFulfillmentAsync(string orderNumber, long orderItemId, string adminUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Confirms manual fulfillment completion after an administrator delivers the product via an authorized external process.
+    /// Enforces explicit confirmation and non-sensitive delivery evidence, sets QuantityFulfilled,
+    /// marks the attempt Succeeded and the fulfillment Completed, records audit history,
+    /// and completes the parent Order if all line items are now fulfilled.
+    /// </summary>
+    Task<ManualFulfillmentOperationResult> CompleteManualFulfillmentAsync(string orderNumber, long orderItemId, string adminUserId, AdminCompleteManualFulfillmentRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves all fulfillments, attempts, and audit history for an order for administrator inspection.
+    /// </summary>
+    Task<AdminOrderFulfillmentsDto?> GetOrderFulfillmentsAsync(string orderNumber, CancellationToken cancellationToken = default);
 }

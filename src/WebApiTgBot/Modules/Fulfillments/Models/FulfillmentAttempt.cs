@@ -1,4 +1,5 @@
 using WebApiTgBot.Modules.Catalog.Models;
+using WebApiTgBot.Modules.Identity.Models;
 
 namespace WebApiTgBot.Modules.Fulfillments.Models;
 
@@ -44,6 +45,33 @@ public class FulfillmentAttempt
     /// </summary>
     public string? SafeErrorSummary { get; set; }
 
+    /// <summary>
+    /// ApplicationUser ID of the administrator who initiated this attempt.
+    /// </summary>
+    public string? InitiatedByUserId { get; set; }
+
+    /// <summary>
+    /// ApplicationUser ID of the administrator who confirmed successful manual delivery.
+    /// </summary>
+    public string? ConfirmedByUserId { get; set; }
+
+    /// <summary>
+    /// Safe external delivery reference or support ticket identifier.
+    /// Strictly excludes credentials, license keys, or vouchers.
+    /// </summary>
+    public string? DeliveryReference { get; set; }
+
+    /// <summary>
+    /// Non-sensitive delivery channel identifier (e.g. EmailSupport, WhatsAppDirect).
+    /// </summary>
+    public string? DeliveryChannel { get; set; }
+
+    /// <summary>
+    /// Optional short, sanitized operational note.
+    /// Strictly excludes digital delivery secrets or sensitive customer credentials.
+    /// </summary>
+    public string? Notes { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SubmittedAt { get; set; }
@@ -52,4 +80,6 @@ public class FulfillmentAttempt
     // Navigation properties
     public Fulfillment Fulfillment { get; set; } = null!;
     public VendorProduct? VendorProduct { get; set; }
+    public ApplicationUser? InitiatedByUser { get; set; }
+    public ApplicationUser? ConfirmedByUser { get; set; }
 }
