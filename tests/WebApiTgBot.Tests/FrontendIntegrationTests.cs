@@ -160,6 +160,28 @@ public class FrontendIntegrationTests : IClassFixture<CustomWebApplicationFactor
         Assert.Equal("true", response.Headers.GetValues("Access-Control-Allow-Credentials").FirstOrDefault());
     }
 
+    [Theory]
+    [InlineData("http://localhost:8080")]
+    [InlineData("https://localhost:8080")]
+    public async Task Cors_DevelopmentOrigin8080_ReceivesCorsAllowHeaders_WhenConfigured(string origin)
+    {
+        var devClient = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Cors:AllowedOrigins:0", "http://localhost:8080");
+            builder.UseSetting("Cors:AllowedOrigins:1", "https://localhost:8080");
+        }).CreateClient();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/products");
+        request.Headers.Add("Origin", origin);
+
+        var response = await devClient.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.Contains("Access-Control-Allow-Origin"));
+        Assert.Equal(origin, response.Headers.GetValues("Access-Control-Allow-Origin").FirstOrDefault());
+        Assert.Equal("true", response.Headers.GetValues("Access-Control-Allow-Credentials").FirstOrDefault());
+    }
+
     // ── 2. CORS Blocked Unapproved Origins ───────────────────────────────────
 
     [Theory]

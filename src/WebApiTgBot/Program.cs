@@ -258,7 +258,7 @@ builder.Services.AddAntiforgery(options =>
 // Arbitrary origins or wildcards with credentials are strictly forbidden.
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? (builder.Environment.IsDevelopment()
-        ? new[] { "http://localhost:3000", "https://localhost:3000", "http://localhost:5173", "https://localhost:5173", "http://localhost:3001", "https://localhost:3001" }
+        ? new[] { "http://localhost:3000", "https://localhost:3000", "http://localhost:5173", "https://localhost:5173", "http://localhost:3001", "https://localhost:3001", "http://localhost:8080", "https://localhost:8080" }
         : new[] { "https://admin.gogaabyte.com", "https://tools.gogaabyte.com", "https://smm.gogaabyte.com", "https://api.gogaabyte.com" });
 
 builder.Services.AddCors(options =>
