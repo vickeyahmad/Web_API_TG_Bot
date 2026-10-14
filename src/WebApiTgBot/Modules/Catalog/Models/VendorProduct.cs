@@ -75,4 +75,6 @@ public class VendorProduct
     // Navigation
     public Vendor Vendor { get; set; } = null!;
     public Product Product { get; set; } = null!;
+    public ICollection<WebApiTgBot.Modules.Fulfillments.Models.FulfillmentAttempt> FulfillmentAttempts { get; set; } = new List<WebApiTgBot.Modules.Fulfillments.Models.FulfillmentAttempt>();
 }
+

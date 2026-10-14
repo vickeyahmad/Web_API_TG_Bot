@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
 using WebApiTgBot.Infrastructure.Data;
 using WebApiTgBot.Modules.Catalog.Services;
+using WebApiTgBot.Modules.Fulfillments.Services;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Identity.Services;
 using WebApiTgBot.Modules.Orders.Services;
@@ -272,6 +273,7 @@ builder.Services.AddScoped<ICustomerWalletTopUpService, CustomerWalletTopUpServi
 builder.Services.AddScoped<IAdminPaymentVerificationService, AdminPaymentVerificationService>();
 builder.Services.AddScoped<IWalletOrderPaymentService, WalletOrderPaymentService>();
 builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
+builder.Services.AddScoped<IFulfillmentService, FulfillmentService>();
 
 
 

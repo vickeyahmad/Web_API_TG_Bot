@@ -347,6 +347,35 @@
 - **Automated Tests**:
   - 202 total tests passing (184 existing + 18 new Milestone 5A Admin Orders & Fulfillment Preparation tests, 0 failed, 0 skipped).
 
+### Milestone 5B — Central Fulfillment Foundation & Vendor Order Preparation
+- **Central Fulfillment Entity Model (`Fulfillment`)**:
+  - Central fulfillment tracking record linked directly to `Order` (`OrderId`) and `OrderItem` (`OrderItemId`) with non-destructive referential integrity (`DeleteBehavior.Restrict`).
+  - Strict line-item isolation: Unique index `IX_Fulfillments_OrderItemId` ensures at most one fulfillment record per line item, preventing duplicate fulfillment initialization.
+  - Snapshot protection: Preserves original product SKU, display name, and price snapshots on `OrderItem` permanently.
+  - Partial fulfillment readiness: Tracks `QuantityRequested` and `QuantityFulfilled` with database check constraints (`CK_Fulfillments_QuantityRequested_Positive`: `"QuantityRequested" > 0`, `CK_Fulfillments_QuantityFulfilled_Valid`: `"QuantityFulfilled" >= 0 AND "QuantityFulfilled" <= "QuantityRequested"`).
+  - Status decoupling: `FulfillmentStatus` (`NotStarted`, `Pending`, `InProgress`, `Completed`, `PartiallyCompleted`, `Failed`, `RequiresReview`) is strictly decoupled from customer `OrderStatus` and `PaymentStatus`. Creating a fulfillment record never automatically completes an order.
+  - Controlled lifecycle: `FulfillmentStatusTransitions` state machine enforces valid progressions and locks terminal states (`Completed`, `Failed`).
+- **Supplier Attempt & Fallback Tracking (`FulfillmentAttempt`)**:
+  - Multi-supplier support: Tracks chronological vendor attempts for the same internal product without losing previous attempt logs (`(FulfillmentId, AttemptNumber)` unique composite index).
+  - Durable attempt identifier: `AttemptKey` (e.g. `ATT-{FulfillmentId}-{AttemptNumber}`) with global uniqueness constraint (`IX_FulfillmentAttempts_AttemptKey`).
+  - Supplier mapping preservation: Linked to `VendorProduct` mapping (nullable for manual fulfillment) with `DeleteBehavior.Restrict`.
+  - Check constraint: `CK_FulfillmentAttempts_AttemptNumber_Positive` (`"AttemptNumber" > 0`).
+  - No secret storage: Strictly prohibits storing passwords, supplier API tokens, customer credentials, or raw responses.
+- **Critical Unknown Vendor Outcome Safety Rule**:
+  - Problem solved: If an external supplier API times out or returns HTTP 500/502/503/504, it is unknown whether the supplier accepted and billed the order. Immediately trying an alternative vendor could double-purchase the subscription.
+  - Safeguard implemented: `FulfillmentAttemptStatus` distinguishes `ConfirmedFailed` from `Unknown` and `RequiresReconciliation`.
+  - Fallback guard: `FulfillmentAttemptRules.CanFallbackToNextVendor(status)` returns `true` ONLY if `status == ConfirmedFailed`. For `Unknown` or `RequiresReconciliation`, fallback is strictly prohibited until manual investigation or status reconciliation confirms no order was created.
+  - Service enforcement: `IFulfillmentService.CreateAttemptAsync` rejects creating a subsequent attempt when the previous attempt ended in an unconfirmed outcome (`FallbackNotAllowedDueToUnconfirmedOutcome`).
+- **Internal Fulfillment Service (`IFulfillmentService` / `FulfillmentService`)**:
+  - `InitializeFulfillmentForOrderItemAsync`: Validates order exists, verifies order is in `Paid` or `Processing` status, verifies trusted `Paid` payment with matching amount and currency (`PKR`), checks idempotency (returns existing record if already initialized), and initializes record in `NotStarted` status. Unpaid or mismatched orders are rejected with zero financial mutation.
+  - `CreateAttemptAsync`: Validates fulfillment and vendor product mapping, enforces unknown outcome fallback rules, and registers sequential attempt.
+  - `RecordAttemptOutcomeAsync`: Records outcome, updates timestamps, and advances fulfillment state to `RequiresReview` or `InProgress` where appropriate.
+  - Financial isolation: Zero mutation of customer wallet balances, transaction ledgers, order totals, or payment statuses.
+- **Database Migration**:
+  - Migration `20261014064342_AddCentralFulfillmentFoundation` created and applied to `webapitgbot_dev` and `webapitgbot_test`.
+- **Automated Tests**:
+  - 223 total tests passing (202 existing + 21 new Milestone 5B Fulfillment Foundation, Relationship, Concurrency & Unloaded Navigation Property tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -354,8 +383,8 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (202 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation) |
-| Docker PostgreSQL | ✅ Migration `AddUniquePaidOrderPaymentIndex` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
+| `dotnet test` (223 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation, Vendor Order Preparation & Navigation Property Safeguard) |
+| Docker PostgreSQL | ✅ Migration `AddCentralFulfillmentFoundation` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
 | Database migrations applied | ✅ Up to date (No pending model changes) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
 | `GET /api/categories` | ✅ 200 OK (public active only) |
@@ -421,13 +450,24 @@
 | Unpaid/mismatched order guard | ✅ Start-processing strictly rejects unpaid orders or mismatched payment amounts |
 | Concurrency & race condition safety | ✅ PostgreSQL row lock (`SELECT ... FOR UPDATE`) prevents duplicate history and racing processing |
 | Admin order role & rate limiting | ✅ Restricted to `AppRoles.Admin`, CSRF-enforced, and rate-limited via `AdminOrderLimiter` |
+| Fulfillment entity relationships | ✅ `Fulfillment` linked to `Order` and `OrderItem` (`DeleteBehavior.Restrict`); `FulfillmentAttempt` linked to `Fulfillment` and `VendorProduct` |
+| Fulfillment line-item uniqueness | ✅ PostgreSQL unique index `IX_Fulfillments_OrderItemId` prevents duplicate fulfillment records per line item |
+| Fulfillment quantity check constraints | ✅ PostgreSQL check constraints enforce `QuantityRequested > 0` and `0 <= QuantityFulfilled <= QuantityRequested` |
+| Fulfillment attempt key uniqueness | ✅ PostgreSQL unique index `IX_FulfillmentAttempts_AttemptKey` and `(FulfillmentId, AttemptNumber)` composite unique |
+| Fulfillment status state machine | ✅ `FulfillmentStatusTransitions` enforces valid lifecycle and locks terminal states (`Completed`, `Failed`) |
+| Critical unknown outcome fallback block | ✅ `FulfillmentAttemptRules.CanFallbackToNextVendor` returns false for `Unknown` and `RequiresReconciliation`; prevents double-ordering |
+| Idempotent fulfillment initialization | ✅ `IFulfillmentService.InitializeFulfillmentForOrderItemAsync` returns existing record safely without duplicate records |
+| Unpaid/mismatched order guard | ✅ Unpaid orders or mismatched payment amounts are strictly rejected from fulfillment initialization |
+| Zero financial mutation | ✅ Fulfillment initialization and attempt recording leave customer wallets, ledgers, and payments 100% untouched |
+| Non-destructive delete protection | ✅ PostgreSQL foreign key `ON DELETE RESTRICT` prevents cascading deletion of orders, items, or fulfillments |
+| Customer vendor privacy | ✅ Customer DTOs and APIs strictly hide all vendor mappings, supplier costs, and external vendor order IDs |
 | `/swagger` UI | ✅ Available in Development |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 5B**: Automated & Assisted Supplier/Vendor API Integration & Fulfillment Dispatch.
+- **Milestone 5C**: Automated & Assisted Supplier/Vendor API Integration & Fulfillment Dispatch.
 
 ---
 

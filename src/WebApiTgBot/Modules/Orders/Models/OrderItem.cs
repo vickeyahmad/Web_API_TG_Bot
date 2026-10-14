@@ -57,4 +57,6 @@ public class OrderItem
     // Navigation properties
     public Order Order { get; set; } = null!;
     public Product Product { get; set; } = null!;
+    public WebApiTgBot.Modules.Fulfillments.Models.Fulfillment? Fulfillment { get; set; }
 }
+

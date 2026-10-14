@@ -317,6 +317,131 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.ToTable("VendorProducts", (string)null);
                 });
 
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FulfillmentMethod")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("QuantityFulfilled")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("QuantityRequested")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("OrderItemId")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("Fulfillments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Fulfillments_QuantityFulfilled_Valid", "\"QuantityFulfilled\" >= 0 AND \"QuantityFulfilled\" <= \"QuantityRequested\"");
+
+                            t.HasCheckConstraint("CK_Fulfillments_QuantityRequested_Positive", "\"QuantityRequested\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.FulfillmentAttempt", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AttemptKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExternalVendorOrderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FailureCategory")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<long>("FulfillmentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SafeErrorSummary")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("VendorProductId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttemptKey")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("VendorProductId");
+
+                    b.HasIndex("FulfillmentId", "AttemptNumber")
+                        .IsUnique();
+
+                    b.ToTable("FulfillmentAttempts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_FulfillmentAttempts_AttemptNumber_Positive", "\"AttemptNumber\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("WebApiTgBot.Modules.Identity.Models.ApplicationRole", b =>
                 {
                     b.Property<string>("Id")
@@ -987,6 +1112,43 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.Navigation("Vendor");
                 });
 
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", b =>
+                {
+                    b.HasOne("WebApiTgBot.Modules.Orders.Models.Order", "Order")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WebApiTgBot.Modules.Orders.Models.OrderItem", "OrderItem")
+                        .WithOne("Fulfillment")
+                        .HasForeignKey("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", "OrderItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("OrderItem");
+                });
+
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.FulfillmentAttempt", b =>
+                {
+                    b.HasOne("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", "Fulfillment")
+                        .WithMany("Attempts")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WebApiTgBot.Modules.Catalog.Models.VendorProduct", "VendorProduct")
+                        .WithMany("FulfillmentAttempts")
+                        .HasForeignKey("VendorProductId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("VendorProduct");
+                });
+
             modelBuilder.Entity("WebApiTgBot.Modules.Orders.Models.Order", b =>
                 {
                     b.HasOne("WebApiTgBot.Modules.Identity.Models.ApplicationUser", "Customer")
@@ -1121,13 +1283,30 @@ namespace WebApiTgBot.Infrastructure.Data.Migrations
                     b.Navigation("VendorProducts");
                 });
 
+            modelBuilder.Entity("WebApiTgBot.Modules.Catalog.Models.VendorProduct", b =>
+                {
+                    b.Navigation("FulfillmentAttempts");
+                });
+
+            modelBuilder.Entity("WebApiTgBot.Modules.Fulfillments.Models.Fulfillment", b =>
+                {
+                    b.Navigation("Attempts");
+                });
+
             modelBuilder.Entity("WebApiTgBot.Modules.Orders.Models.Order", b =>
                 {
+                    b.Navigation("Fulfillments");
+
                     b.Navigation("Items");
 
                     b.Navigation("Payments");
 
                     b.Navigation("StatusHistory");
+                });
+
+            modelBuilder.Entity("WebApiTgBot.Modules.Orders.Models.OrderItem", b =>
+                {
+                    b.Navigation("Fulfillment");
                 });
 
             modelBuilder.Entity("WebApiTgBot.Modules.Payments.Models.Payment", b =>

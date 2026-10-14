@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using WebApiTgBot.Modules.Catalog.Models;
+using WebApiTgBot.Modules.Fulfillments.Models;
 using WebApiTgBot.Modules.Identity.Models;
 using WebApiTgBot.Modules.Orders.Models;
 using WebApiTgBot.Modules.Payments.Models;
@@ -31,6 +32,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<PaymentStatusHistory> PaymentStatusHistories => Set<PaymentStatusHistory>();
     public DbSet<Wallet> Wallets => Set<Wallet>();
     public DbSet<WalletTransaction> WalletTransactions => Set<WalletTransaction>();
+    public DbSet<Fulfillment> Fulfillments => Set<Fulfillment>();
+    public DbSet<FulfillmentAttempt> FulfillmentAttempts => Set<FulfillmentAttempt>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
