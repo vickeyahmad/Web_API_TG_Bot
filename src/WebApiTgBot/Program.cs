@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
+using WebApiTgBot.Common.Models;
 using WebApiTgBot.Infrastructure.Data;
 using WebApiTgBot.Modules.Catalog.Services;
 using WebApiTgBot.Modules.Fulfillments.Options;
@@ -85,16 +86,24 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
 
-    // In a Web API, return 401 Unauthorized / 403 Forbidden instead of HTTP 302 redirects
-    options.Events.OnRedirectToLogin = context =>
+    // In a Web API, return 401 Unauthorized / 403 Forbidden with JSON-compatible response bodies instead of HTTP 302 redirects
+    options.Events.OnRedirectToLogin = async context =>
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return Task.CompletedTask;
+        if (!context.Response.HasStarted)
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail("Unauthenticated administrator session."));
+        }
     };
-    options.Events.OnRedirectToAccessDenied = context =>
+    options.Events.OnRedirectToAccessDenied = async context =>
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        return Task.CompletedTask;
+        if (!context.Response.HasStarted)
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail("Access denied."));
+        }
     };
 
     // CRITICAL SECURITY ENFORCEMENT:
@@ -144,16 +153,24 @@ builder.Services.AddAuthentication()
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
         options.SlidingExpiration = true;
 
-        // In a Web API, return 401 Unauthorized / 403 Forbidden instead of HTTP 302 redirects
-        options.Events.OnRedirectToLogin = context =>
+        // In a Web API, return 401 Unauthorized / 403 Forbidden with JSON-compatible response bodies instead of HTTP 302 redirects
+        options.Events.OnRedirectToLogin = async context =>
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
+            if (!context.Response.HasStarted)
+            {
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail("Unauthenticated customer session."));
+            }
         };
-        options.Events.OnRedirectToAccessDenied = context =>
+        options.Events.OnRedirectToAccessDenied = async context =>
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return Task.CompletedTask;
+            if (!context.Response.HasStarted)
+            {
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail("Access denied."));
+            }
         };
 
         // Preserves built-in Identity security stamp validation AND enforces immediate active/customer checks
@@ -241,7 +258,7 @@ builder.Services.AddAntiforgery(options =>
 // Arbitrary origins or wildcards with credentials are strictly forbidden.
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? (builder.Environment.IsDevelopment()
-        ? new[] { "http://localhost:3000", "https://localhost:3000", "http://localhost:3001", "https://localhost:3001" }
+        ? new[] { "http://localhost:3000", "https://localhost:3000", "http://localhost:5173", "https://localhost:5173", "http://localhost:3001", "https://localhost:3001" }
         : new[] { "https://admin.gogaabyte.com", "https://tools.gogaabyte.com", "https://smm.gogaabyte.com", "https://api.gogaabyte.com" });
 
 builder.Services.AddCors(options =>
@@ -249,7 +266,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AdminCorsPolicy", policy =>
     {
         policy.WithOrigins(allowedOrigins)
-            .WithHeaders("Content-Type", "X-XSRF-TOKEN", "Authorization", "Accept")
+            .WithHeaders("Content-Type", "X-XSRF-TOKEN", "X-Idempotency-Key", "Authorization", "Accept", "X-Requested-With")
             .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
             .AllowCredentials();
     });
@@ -299,6 +316,13 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "Centralized B2C Digital Reseller Platform API"
     });
+
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        options.IncludeXmlComments(xmlPath);
+    }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

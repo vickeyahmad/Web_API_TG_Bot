@@ -395,6 +395,34 @@
 - **Automated Tests**:
   - 245 total tests passing (223 existing + 22 new Milestone 5C Manual Fulfillment, Delivery Tracking & Multi-Item Order Completion tests, 0 failed, 0 skipped).
 
+### Milestone 6A — Frontend Integration Readiness & API Contracts
+- **CORS Configuration & Browser Preflight Handling**:
+  - Restrictive cross-origin policy configured in `Program.cs`, `appsettings.json`, and `appsettings.Development.json`.
+  - Approved production origins: `https://tools.gogaabyte.com`, `https://admin.gogaabyte.com`, `https://smm.gogaabyte.com`, and `https://api.gogaabyte.com`.
+  - Approved development origins: `http://localhost:5173`, `https://localhost:5173`, `http://localhost:3000`, `https://localhost:3000`, `http://localhost:3001`, `https://localhost:3001`.
+  - Permitted request headers: `Content-Type`, `X-XSRF-TOKEN`, `X-Idempotency-Key`, `Authorization`, `Accept`, `X-Requested-With`.
+  - Preflight `OPTIONS` requests succeed for cross-origin customer order creation, wallet top-up, and wallet order payments without CORS header rejection.
+  - Arbitrary origins (e.g. `https://malicious-website.com`) do not receive `Access-Control-Allow-Origin` headers, causing the browser to block access.
+- **Dual Cookie Schemes & Session Isolation**:
+  - Customer sessions (`.WebAPI.Customer.Auth`) and Admin sessions (`.WebAPI.Admin.Auth`) run on independent schemes with `HttpOnly = true`, `SameSite = Lax`, and sliding expiration.
+  - In production, `CookieSecurePolicy.Always` guarantees cookies are transmitted exclusively over HTTPS.
+  - Customer cookies cannot authorize admin endpoints; admin cookies cannot authorize customer endpoints.
+  - Security stamp validation and immediate active status checks (`OnValidatePrincipal`) invalidate deactivated accounts on the next request.
+- **Structured JSON 401 & 403 Response Bodies**:
+  - Overrode `OnRedirectToLogin` and `OnRedirectToAccessDenied` on both cookie schemes to output structured `ApiResponse<object>.Fail(...)` JSON payloads instead of HTTP 302 HTML redirects, ensuring frontend `fetch` handlers receive reliable error bodies.
+- **Cross-Subdomain CSRF / Antiforgery Delivery**:
+  - `GET /api/customer/auth/csrf` and `GET /api/admin/auth/csrf` issue request tokens in a non-cacheable JSON response body (`Cache-Control: no-store, no-cache, must-revalidate`) while setting the companion `HttpOnly` `.WebAPI.Antiforgery` cookie.
+  - Mutating state-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require `X-XSRF-TOKEN` paired with the companion cookie. Missing or invalid tokens return `400 Bad Request`.
+- **OpenAPI / Swagger Documentation Enhancement**:
+  - Enabled XML documentation generation (`<GenerateDocumentationFile>true</GenerateDocumentationFile>`) in `WebApiTgBot.csproj`.
+  - Integrated XML documentation into `SwaggerGen` in `Program.cs`. Swagger UI runs strictly in development (`app.Environment.IsDevelopment()`).
+- **Zero Supplier Exposure in Customer DTOs**:
+  - Customer catalog and order endpoints (`/api/products`, `/api/products/{sku}`, `/api/customer/orders`) strictly exclude supplier names, vendor IDs, wholesale costs, and fulfillment attempts.
+- **Frontend Integration Guide for Lovable**:
+  - Published comprehensive documentation in `docs/FRONTEND_INTEGRATION.md` detailing backend architecture, API endpoints, safe fetch client examples, error handling conventions, and strict frontend-only boundaries.
+- **Automated Tests**:
+  - 266 total tests passing (245 existing + 21 new Milestone 6A CORS, preflight, cookie auth, CSRF, JSON 401/403, and privacy tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -402,7 +430,7 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (245 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation + 22 Controlled Manual Fulfillment & Delivery Tracking) |
+| `dotnet test` (266 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation + 22 Controlled Manual Fulfillment & Delivery Tracking + 21 Frontend Integration Readiness & API Contracts) |
 | Docker PostgreSQL | ✅ Migrations `AddCentralFulfillmentFoundation` and `AddManualFulfillmentAndAuditHistory` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
 | Database migrations applied | ✅ Up to date (No pending model changes) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
@@ -420,7 +448,7 @@
 | Customer role assignment | ✅ Strictly server-side `Customer` role; no Admin elevation |
 | Customer login / logout | ✅ 200 OK (issues `.WebAPI.Customer.Auth`) / 401 (bad creds) / 403 (deactivated) |
 | Customer /me profile | ✅ 200 OK with safe `CustomerUserDto`; zero credential leakage |
-| Role & session separation | ✅ Customers strictly rejected from `/api/admin/*` endpoints (401/403) |
+| Role & session separation | ✅ Customers strictly rejected from `/api/admin/*` endpoints (401/403); Admins cannot access customer endpoints |
 | Customer order creation | ✅ 201 Created with server-side pricing & initial `PendingPayment` state |
 | Server-side pricing enforcement | ✅ Pricing resolved directly from DB; client prices never accepted |
 | Catalog state guards | ✅ Inactive products & disabled categories rejected (400 Bad Request) |
@@ -485,13 +513,16 @@
 | Multi-item order completion guard | ✅ Order completed only when ALL line items are fulfilled; multi-item orders remain Processing until all items are done |
 | Permanent fulfillment audit trail | ✅ `FulfillmentStatusHistories` logs all status transitions with actor and timestamps |
 | Manual fulfillment feature gate | ✅ Master toggle `ManualFulfillmentOptions.Enabled = false` by default; live APIs return 403 Forbidden |
-| `/swagger` UI | ✅ Available in Development |
+| CORS origin enforcement | ✅ Approved origins receive `Access-Control-Allow-Origin`; unapproved origins blocked |
+| CORS preflight OPTIONS | ✅ Preflight requests succeed with allowed headers (`Content-Type`, `X-XSRF-TOKEN`, `X-Idempotency-Key`, etc.) |
+| JSON 401/403 responses | ✅ Unauthenticated / forbidden API requests return JSON `{ success: false, data: null, message: ... }` rather than HTML redirects |
+| `/swagger` UI | ✅ Available in Development with XML documentation and schema models |
 
 ---
 
 ## Next Milestone
 
-- **Milestone 5D**: Automated & Assisted Supplier/Vendor API Integration & Fulfillment Dispatch.
+- **Milestone 6B**: Customer Website Frontend Implementation (Lovable / React / Vite).
 
 ---
 
@@ -501,5 +532,6 @@
 - Never put passwords or secrets in source code.
 - Never push to GitHub without owner permission.
 - Run `dotnet build` and `dotnet test` after every change.
+
 
 
