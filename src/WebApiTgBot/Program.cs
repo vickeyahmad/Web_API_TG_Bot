@@ -293,9 +293,8 @@ builder.Services.AddScoped<IAdminPaymentVerificationService, AdminPaymentVerific
 builder.Services.AddScoped<IWalletOrderPaymentService, WalletOrderPaymentService>();
 builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
 builder.Services.AddScoped<IFulfillmentService, FulfillmentService>();
-
-
-
+builder.Services.AddScoped<IAdminPaymentService, AdminPaymentService>();
+builder.Services.AddScoped<IAdminWalletService, AdminWalletService>();
 
 // ── Controllers & Centralized CSRF Protection ────────────────────────────────
 // Centralized defense-in-depth:

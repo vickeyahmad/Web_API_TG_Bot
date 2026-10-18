@@ -423,6 +423,32 @@
 - **Automated Tests**:
   - 266 total tests passing (245 existing + 21 new Milestone 6A CORS, preflight, cookie auth, CSRF, JSON 401/403, and privacy tests, 0 failed, 0 skipped).
 
+### Milestone 6B-5A2 — Secure Read-Only Admin Payments & Wallet APIs
+- **Admin General Payments Overview (`GET /api/admin/payments`)**:
+  - Authenticated read-only payment overview supporting both `OrderPurchase` and `WalletTopUp` attempts.
+  - Server-side multi-criteria filtering (`status`, `purpose`, `paymentMethod`, `search`) and pagination with deterministic sorting (`CreatedAt` descending with unique `Id` tie-breaker).
+  - Safe DTO projection (`AdminPaymentSummaryDto`) resolving customer identity from orders or wallets while strictly excluding vendor costs and credentials.
+- **Admin Payment Details (`GET /api/admin/payments/{paymentNumber}`)**:
+  - Safe, comprehensive operational view (`AdminPaymentDetailDto`) supporting both order purchases and wallet top-ups.
+  - Preserves immutable chronological status audit trail from `PaymentStatusHistory`.
+  - Sensitive customer account minimizing (`***1234`) and zero secret exposure.
+  - Strict route isolation: Preserves full backward compatibility with existing `/api/admin/payments/manual` routes without conflict.
+- **Admin Customer Wallets Overview (`GET /api/admin/wallets`)**:
+  - Pure read-only overview of customer wallets (`AdminWalletSummaryDto`) returning authoritative stored balances.
+  - Strictly prohibits wallet creation, balance mutation, or recalculation on GET requests.
+  - Multi-field search across customer ID, full name, and email, with currency filtering and server-side pagination.
+- **Admin Wallet Transaction History (`GET /api/admin/wallets/{walletId}/transactions`)**:
+  - Wallet-scoped ledger inspection (`AdminWalletTransactionDto`) returning immutable historical records with exact `decimal(18,4)` precision and `BalanceBefore`/`BalanceAfter` snapshots.
+  - Filterable by `transactionType` (Credit, Debit) and `sourceType` (DepositVerification, OrderPayment, etc.).
+  - Returns 404 Not Found if wallet does not exist; strictly guarantees ledger pagination never mixes transactions from different wallets.
+- **Strict Authorization & Defensive Input Validation**:
+  - Enforces `[Authorize(Roles = AppRoles.Admin)]`. Anonymous requests return 401 Unauthorized; customer sessions return 401/403.
+  - Defensive input validation returning 400 Bad Request for negative/zero page numbers, page size > 100, invalid enums, and invalid identifiers.
+- **Zero Schema Migrations**:
+  - 100% reused existing PostgreSQL schema, tables, and indexes without migrations.
+- **Automated Tests**:
+  - 305 total tests passing (268 baseline + 37 new Milestone 6B-5A2 integration, pagination, filtering, privacy, route-resolution, and negative validation tests, 0 failed, 0 skipped).
+
 ---
 
 ## Test Results
@@ -430,7 +456,8 @@
 | Check | Result |
 |-------|--------|
 | `dotnet build` | ✅ 0 errors, 0 warnings |
-| `dotnet test` (266 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation + 22 Controlled Manual Fulfillment & Delivery Tracking + 21 Frontend Integration Readiness & API Contracts) |
+| `dotnet test` (305 tests) | ✅ All passed (3 Health + 10 Catalog + 13 Admin Auth + 15 Admin Catalog + 15 Admin Vendor + 19 Order System + 20 Customer Auth + 17 Customer Order + 18 Payment Foundation + 18 Wallet & Ledger Foundation + 19 Manual Top-Up & Verification + 17 Customer Wallet Order Payment & Targeted Financial Verification + 18 Admin Order Management & Fulfillment Preparation + 21 Central Fulfillment Foundation + 22 Controlled Manual Fulfillment & Delivery Tracking + 21 Frontend Integration Readiness + 37 Secure Read-Only Admin Payments & Wallet APIs) |
+
 | Docker PostgreSQL | ✅ Migrations `AddCentralFulfillmentFoundation` and `AddManualFulfillmentAndAuditHistory` applied to `webapitgbot_dev` and `webapitgbot_test`; `PostgreSqlTestDatabase` ensures auto-migration before tests |
 | Database migrations applied | ✅ Up to date (No pending model changes) |
 | `GET /api/health` | ✅ 200 OK — `Healthy` |
