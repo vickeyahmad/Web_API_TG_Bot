@@ -1,3 +1,4 @@
+using WebApiTgBot.Common.Models;
 using WebApiTgBot.Modules.Fulfillments.Models;
 using WebApiTgBot.Modules.Fulfillments.Models.DTOs;
 
@@ -60,4 +61,11 @@ public interface IFulfillmentService
     /// Retrieves all fulfillments, attempts, and audit history for an order for administrator inspection.
     /// </summary>
     Task<AdminOrderFulfillmentsDto?> GetOrderFulfillmentsAsync(string orderNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches and retrieves a paginated list of fulfillment work items across customer orders.
+    /// Supports filtering by queue/fulfillment status, fulfillment method, parent order status, and customer/order search.
+    /// Safely projects uninitialized actionable line items without creating database records.
+    /// </summary>
+    Task<PagedResult<AdminFulfillmentSummaryDto>> GetFulfillmentsAsync(AdminFulfillmentQuery query, CancellationToken cancellationToken = default);
 }

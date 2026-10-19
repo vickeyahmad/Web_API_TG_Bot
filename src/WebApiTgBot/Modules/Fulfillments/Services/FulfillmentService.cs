@@ -1,5 +1,6 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
+using WebApiTgBot.Common.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -960,5 +961,134 @@ public class FulfillmentService : IFulfillmentService
                 ChangedAt = h.ChangedAt
             }).ToList()
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<PagedResult<AdminFulfillmentSummaryDto>> GetFulfillmentsAsync(
+        AdminFulfillmentQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var baseQuery = _db.OrderItems
+            .AsNoTracking()
+            .Include(oi => oi.Order)
+                .ThenInclude(o => o.Customer)
+            .Include(oi => oi.Fulfillment)
+                .ThenInclude(f => f!.Attempts)
+            .AsQueryable();
+
+        // 1. Order status filtering & default eligibility rules
+        if (!string.IsNullOrWhiteSpace(query.OrderStatus) &&
+            Enum.TryParse<OrderStatus>(query.OrderStatus.Trim(), true, out var filterOrderStatus))
+        {
+            baseQuery = baseQuery.Where(oi => oi.Order.Status == filterOrderStatus);
+        }
+        else
+        {
+            // Default queue eligibility: include items that have a tracked fulfillment record,
+            // OR items on actionable/paid orders (excluding unpaid checkout drafts, cancelled, and checkout-failed orders without fulfillment).
+            baseQuery = baseQuery.Where(oi => oi.Fulfillment != null ||
+                (oi.Order.Status != OrderStatus.PendingPayment &&
+                 oi.Order.Status != OrderStatus.Cancelled &&
+                 oi.Order.Status != OrderStatus.Failed));
+        }
+
+        // 2. Queue / Fulfillment status filter
+        if (!string.IsNullOrWhiteSpace(query.Status))
+        {
+            var statusStr = query.Status.Trim();
+            if (statusStr.Equals("Uninitialized", StringComparison.OrdinalIgnoreCase))
+            {
+                baseQuery = baseQuery.Where(oi => oi.Fulfillment == null);
+            }
+            else if (Enum.TryParse<FulfillmentStatus>(statusStr, true, out var filterFulfillmentStatus))
+            {
+                baseQuery = baseQuery.Where(oi => oi.Fulfillment != null && oi.Fulfillment.Status == filterFulfillmentStatus);
+            }
+        }
+
+        // 3. Fulfillment method filter
+        if (!string.IsNullOrWhiteSpace(query.FulfillmentMethod) &&
+            Enum.TryParse<FulfillmentMethod>(query.FulfillmentMethod.Trim(), true, out var filterMethod))
+        {
+            if (filterMethod == FulfillmentMethod.Unassigned)
+            {
+                baseQuery = baseQuery.Where(oi => oi.Fulfillment == null || oi.Fulfillment.FulfillmentMethod == FulfillmentMethod.Unassigned);
+            }
+            else
+            {
+                baseQuery = baseQuery.Where(oi => oi.Fulfillment != null && oi.Fulfillment.FulfillmentMethod == filterMethod);
+            }
+        }
+
+        // 4. Multi-field search
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var cleanSearch = query.Search.Trim().ToLower();
+            baseQuery = baseQuery.Where(oi =>
+                oi.Order.OrderNumber.ToLower().Contains(cleanSearch) ||
+                oi.ProductSkuSnapshot.ToLower().Contains(cleanSearch) ||
+                oi.ProductNameSnapshot.ToLower().Contains(cleanSearch) ||
+                (oi.Order.Customer != null && (
+                    (oi.Order.Customer.Email != null && oi.Order.Customer.Email.ToLower().Contains(cleanSearch)) ||
+                    (oi.Order.Customer.FullName != null && oi.Order.Customer.FullName.ToLower().Contains(cleanSearch)) ||
+                    oi.Order.CustomerId.ToLower().Contains(cleanSearch)
+                ))
+            );
+        }
+
+        // 5. Total count for server-side pagination
+        var totalCount = await baseQuery.CountAsync(cancellationToken);
+
+        // 6. Deterministic pagination & ordering (newest orders first, unique OrderItemId tie-breaker)
+        var page = query.Page < 1 ? 1 : query.Page;
+        var pageSize = query.PageSize < 1 ? 20 : (query.PageSize > 100 ? 100 : query.PageSize);
+
+        var items = await baseQuery
+            .OrderByDescending(oi => oi.Order.CreatedAt)
+            .ThenByDescending(oi => oi.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        // 7. Project to safe AdminFulfillmentSummaryDto
+        var dtos = items.Select(oi =>
+        {
+            var f = oi.Fulfillment;
+            var isInitialized = f != null;
+            var fulfillmentStatus = f != null ? f.Status.ToString() : null;
+            var queueStatus = f != null ? f.Status.ToString() : "Uninitialized";
+            var method = f != null ? f.FulfillmentMethod.ToString() : FulfillmentMethod.Unassigned.ToString();
+            var quantityFulfilled = f != null ? f.QuantityFulfilled : 0;
+            var attemptCount = f != null ? f.Attempts.Count : 0;
+            var createdAt = f != null ? f.CreatedAt : oi.Order.CreatedAt;
+            var updatedAt = f != null ? f.UpdatedAt : oi.Order.UpdatedAt;
+            var completedAt = f?.CompletedAt;
+
+            return new AdminFulfillmentSummaryDto
+            {
+                FulfillmentId = f?.Id,
+                IsInitialized = isInitialized,
+                OrderId = oi.OrderId,
+                OrderNumber = oi.Order.OrderNumber,
+                OrderItemId = oi.Id,
+                CustomerId = oi.Order.CustomerId,
+                CustomerEmail = oi.Order.Customer?.Email,
+                CustomerName = oi.Order.Customer?.FullName,
+                ProductSku = oi.ProductSkuSnapshot,
+                ProductName = oi.ProductNameSnapshot,
+                QuantityRequested = oi.Quantity,
+                QuantityFulfilled = quantityFulfilled,
+                FulfillmentMethod = method,
+                FulfillmentStatus = fulfillmentStatus,
+                QueueStatus = queueStatus,
+                OrderStatus = oi.Order.Status.ToString(),
+                AttemptCount = attemptCount,
+                CreatedAt = createdAt,
+                UpdatedAt = updatedAt,
+                CompletedAt = completedAt
+            };
+        }).ToList();
+
+        return new PagedResult<AdminFulfillmentSummaryDto>(dtos, page, pageSize, totalCount);
     }
 }

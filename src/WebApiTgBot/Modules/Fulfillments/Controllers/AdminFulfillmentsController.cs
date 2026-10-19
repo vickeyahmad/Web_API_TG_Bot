@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using WebApiTgBot.Common.Models;
+using WebApiTgBot.Modules.Fulfillments.Models;
 using WebApiTgBot.Modules.Fulfillments.Models.DTOs;
 using WebApiTgBot.Modules.Fulfillments.Services;
 using WebApiTgBot.Modules.Identity.Models;
+using WebApiTgBot.Modules.Orders.Models;
 
 namespace WebApiTgBot.Modules.Fulfillments.Controllers;
 
@@ -146,5 +148,79 @@ public class AdminFulfillmentsController : ControllerBase
         }
 
         return Ok(ApiResponse<AdminOrderFulfillmentsDto>.Ok(result, "Order fulfillments retrieved successfully."));
+    }
+
+    /// <summary>
+    /// Searches and retrieves a paginated overview of fulfillment work items across customer orders.
+    /// Supports filtering by queue/fulfillment status, fulfillment method, parent order status, customer/order search, and server-side pagination.
+    /// Safely projects uninitialized actionable line items without creating database records.
+    /// </summary>
+    [HttpGet("/api/admin/fulfillments")]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetFulfillments(
+        [FromQuery] AdminFulfillmentQuery query,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            var errors = string.Join("; ", ModelState.Values
+                .SelectMany(v => v.Errors)
+                .Select(e => e.ErrorMessage));
+            return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail($"Validation failed: {errors}"));
+        }
+
+        if (query.Page < 1)
+        {
+            return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail("Page must be greater than or equal to 1."));
+        }
+
+        if (query.PageSize < 1 || query.PageSize > 100)
+        {
+            return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail("Page size must be between 1 and 100."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search) && query.Search.Trim().Length > 100)
+        {
+            return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail("Search term cannot exceed 100 characters."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Status))
+        {
+            var statusStr = query.Status.Trim();
+            var isUninitialized = statusStr.Equals("Uninitialized", StringComparison.OrdinalIgnoreCase);
+            var isValidFulfillmentStatus = Enum.TryParse<FulfillmentStatus>(statusStr, true, out _);
+
+            if (!isUninitialized && !isValidFulfillmentStatus)
+            {
+                return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail(
+                    $"Invalid status '{query.Status}'. Supported values are: Uninitialized, NotStarted, Pending, InProgress, Completed, PartiallyCompleted, Failed, RequiresReview."));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.FulfillmentMethod))
+        {
+            var methodStr = query.FulfillmentMethod.Trim();
+            if (!Enum.TryParse<FulfillmentMethod>(methodStr, true, out _))
+            {
+                return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail(
+                    $"Invalid fulfillmentMethod '{query.FulfillmentMethod}'. Supported values are: Unassigned, Manual, VendorApi."));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.OrderStatus))
+        {
+            var orderStatusStr = query.OrderStatus.Trim();
+            if (!Enum.TryParse<OrderStatus>(orderStatusStr, true, out _))
+            {
+                return BadRequest(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Fail(
+                    $"Invalid orderStatus '{query.OrderStatus}'."));
+            }
+        }
+
+        var result = await _fulfillmentService.GetFulfillmentsAsync(query, cancellationToken);
+        return Ok(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Ok(result, "Fulfillments retrieved successfully."));
     }
 }
