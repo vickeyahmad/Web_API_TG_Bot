@@ -68,4 +68,11 @@ public interface IFulfillmentService
     /// Safely projects uninitialized actionable line items without creating database records.
     /// </summary>
     Task<PagedResult<AdminFulfillmentSummaryDto>> GetFulfillmentsAsync(AdminFulfillmentQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves current administrative fulfillment capabilities and feature status based on server-side configuration.
+    /// Optionally checks product eligibility if a product SKU is specified.
+    /// Strictly read-only; executes zero database queries.
+    /// </summary>
+    AdminFulfillmentCapabilitiesDto GetCapabilities(string? productSku = null);
 }

@@ -57,7 +57,7 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         _client = factory.CreateClient();
     }
 
-    private HttpClient CreateEnabledClient()
+    private HttpClient CreateEnabledClient(List<string>? approvedSkus = null)
     {
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -66,6 +66,10 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
                 services.Configure<ManualFulfillmentOptions>(options =>
                 {
                     options.Enabled = true;
+                    if (approvedSkus != null)
+                    {
+                        options.ApprovedProductSkus = approvedSkus;
+                    }
                 });
                 services.Configure<WalletPurchaseOptions>(options =>
                 {
@@ -368,7 +372,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "start_success");
 
-        var enabledOptions = Options.Create(new ManualFulfillmentOptions { Enabled = true });
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
         var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
 
         var result = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-user-001");
@@ -452,7 +460,12 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "start_dup");
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
         var firstResult = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
         Assert.True(firstResult.IsSuccess);
 
@@ -495,7 +508,12 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         db.FulfillmentAttempts.Add(attempt);
         await db.SaveChangesAsync();
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
         var result = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
 
         Assert.False(result.IsSuccess);
@@ -536,7 +554,12 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         db.FulfillmentAttempts.Add(attempt);
         await db.SaveChangesAsync();
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
         var result = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
 
         Assert.False(result.IsSuccess);
@@ -552,7 +575,12 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "comp_unconfirmed");
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
         await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
 
         var completeResult = await service.CompleteManualFulfillmentAsync(
@@ -577,7 +605,12 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "comp_sanitize");
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
         await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
 
         // Reference containing script tag
@@ -618,7 +651,12 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "comp_single_success");
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var enabledOptions = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, enabledOptions);
         var startResult = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-start");
         Assert.True(startResult.IsSuccess);
 
@@ -712,7 +750,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         payment.Amount = 3000m;
         await db.SaveChangesAsync();
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item1.ProductSkuSnapshot, item2.ProductSkuSnapshot }
+        }));
 
         // Start and complete item 1
         await service.StartManualFulfillmentAsync(order.OrderNumber, item1.Id, "admin-1");
@@ -766,7 +808,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "comp_already_done");
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        }));
         await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
 
         var req = new AdminCompleteManualFulfillmentRequest
@@ -852,7 +898,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         await using var db1 = new AppDbContext(options);
         await using var db2 = new AppDbContext(options);
 
-        var enabledOpts = Options.Create(new ManualFulfillmentOptions { Enabled = true });
+        var enabledOpts = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
         var service1 = new FulfillmentService(db1, NullLogger<FulfillmentService>.Instance, enabledOpts);
         var service2 = new FulfillmentService(db2, NullLogger<FulfillmentService>.Instance, enabledOpts);
 
@@ -926,7 +976,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         await using var db1 = new AppDbContext(options);
         await using var db2 = new AppDbContext(options);
 
-        var enabledOpts = Options.Create(new ManualFulfillmentOptions { Enabled = true });
+        var enabledOpts = Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        });
         var service1 = new FulfillmentService(db1, NullLogger<FulfillmentService>.Instance, enabledOpts);
         var service2 = new FulfillmentService(db2, NullLogger<FulfillmentService>.Instance, enabledOpts);
 
@@ -974,7 +1028,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         var initialItemPrice = item.TotalPrice;
         var initialOrderTotal = order.TotalAmount;
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        }));
         await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
         await service.CompleteManualFulfillmentAsync(
             order.OrderNumber,
@@ -1026,7 +1084,11 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
         var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "read_api");
 
-        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions { Enabled = true }));
+        var service = new FulfillmentService(db, NullLogger<FulfillmentService>.Instance, Options.Create(new ManualFulfillmentOptions
+        {
+            Enabled = true,
+            ApprovedProductSkus = new() { item.ProductSkuSnapshot }
+        }));
         await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-init");
         await service.CompleteManualFulfillmentAsync(
             order.OrderNumber,
@@ -1063,5 +1125,436 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(2, f.StatusHistory.Count);
         Assert.Equal(FulfillmentStatus.InProgress.ToString(), f.StatusHistory[0].NewStatus);
         Assert.Equal(FulfillmentStatus.Completed.ToString(), f.StatusHistory[1].NewStatus);
+    }
+
+    // ── 8. Milestone 6B-6D2: Safeguards & Feature Visibility Tests ────────────
+
+    [Fact]
+    public async Task GetCapabilities_AdminAuthenticated_DefaultConfig_ReturnsDisabledAndUnavailable()
+    {
+        var client = _client; // Default factory client has Enabled = false
+        var (_, authCookie, _, _) = await LoginAsAdminAsync(client);
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/admin/fulfillment-capabilities");
+        req.Headers.Add("Cookie", authCookie);
+
+        var res = await client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse<AdminFulfillmentCapabilitiesDto>>();
+        Assert.NotNull(body?.Data);
+        Assert.False(body.Data.IsGloballyEnabled);
+        Assert.False(body.Data.HasProductAllowlistPolicy);
+        Assert.False(body.Data.IsEffectivelyAvailable);
+        Assert.Equal(0, body.Data.ApprovedProductCount);
+        Assert.Contains("disabled by server configuration", body.Data.StatusMessage);
+        Assert.Null(body.Data.IsProductApproved);
+    }
+
+    [Fact]
+    public async Task GetCapabilities_Anonymous_ReturnsUnauthorized()
+    {
+        var res = await _client.GetAsync("/api/admin/fulfillment-capabilities");
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCapabilities_CustomerAuthenticated_ReturnsForbidden()
+    {
+        var email = $"cust_cap_{Guid.NewGuid():N}@test.local";
+        var (_, customerAuthCookie) = await RegisterAndLoginCustomerAsync(email, "CustomerPass123!");
+
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/admin/fulfillment-capabilities");
+        req.Headers.Add("Cookie", customerAuthCookie);
+
+        var res = await _client.SendAsync(req);
+        Assert.True(res.StatusCode == HttpStatusCode.Unauthorized || res.StatusCode == HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task GetCapabilities_ConfiguredWithApprovedProducts_ReflectsStatusAndQueryParam()
+    {
+        var approvedSku = "SKU-PILOT-SAFE-1";
+        var unapprovedSku = "SKU-FORBIDDEN-9";
+
+        var client = CreateEnabledClient(new() { approvedSku });
+        var (_, authCookie, _, _) = await LoginAsAdminAsync(client);
+
+        // Query with approved product SKU
+        var reqApproved = new HttpRequestMessage(HttpMethod.Get, $"/api/admin/fulfillment-capabilities?productSku={approvedSku}");
+        reqApproved.Headers.Add("Cookie", authCookie);
+        var resApproved = await client.SendAsync(reqApproved);
+        Assert.Equal(HttpStatusCode.OK, resApproved.StatusCode);
+
+        var bodyApproved = await resApproved.Content.ReadFromJsonAsync<ApiResponse<AdminFulfillmentCapabilitiesDto>>();
+        Assert.NotNull(bodyApproved?.Data);
+        Assert.True(bodyApproved.Data.IsGloballyEnabled);
+        Assert.True(bodyApproved.Data.HasProductAllowlistPolicy);
+        Assert.True(bodyApproved.Data.IsEffectivelyAvailable);
+        Assert.Equal(1, bodyApproved.Data.ApprovedProductCount);
+        Assert.True(bodyApproved.Data.IsProductApproved);
+        Assert.Contains("Manual fulfillment is active for 1 approved product(s)", bodyApproved.Data.StatusMessage);
+
+        // Query with unapproved product SKU
+        var reqUnapproved = new HttpRequestMessage(HttpMethod.Get, $"/api/admin/fulfillment-capabilities?productSku={unapprovedSku}");
+        reqUnapproved.Headers.Add("Cookie", authCookie);
+        var resUnapproved = await client.SendAsync(reqUnapproved);
+        Assert.Equal(HttpStatusCode.OK, resUnapproved.StatusCode);
+
+        var bodyUnapproved = await resUnapproved.Content.ReadFromJsonAsync<ApiResponse<AdminFulfillmentCapabilitiesDto>>();
+        Assert.NotNull(bodyUnapproved?.Data);
+        Assert.False(bodyUnapproved.Data.IsProductApproved);
+    }
+
+    [Fact]
+    public async Task StartManualFulfillment_EmptyAllowlist_BlocksStart_EvenWhenGloballyEnabled()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "empty_allowlist");
+
+        // Globally enabled, but empty allowlist
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() }));
+
+        var result = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.Forbidden, result.Status);
+        Assert.Contains("not approved for manual fulfillment", result.Message);
+
+        // Verify zero fulfillment rows created
+        var fulfillmentCount = await db.Fulfillments.CountAsync();
+        Assert.Equal(0, fulfillmentCount);
+    }
+
+    [Fact]
+    public async Task StartManualFulfillment_UnapprovedSku_BlocksStart()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "unapproved_sku");
+
+        // Allowlist configured, but does NOT contain this item's SKU
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { "OTHER-SKU-99" } }));
+
+        var result = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.Forbidden, result.Status);
+        Assert.Contains(item.ProductSkuSnapshot, result.Message);
+        Assert.Contains("not approved", result.Message);
+    }
+
+    [Fact]
+    public async Task StartManualFulfillment_MasterFlagDisabled_BlocksStart_EvenWithApprovedSku()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "flag_disabled");
+
+        // Product is in allowlist, but master flag is disabled
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = false, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        var result = await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.Forbidden, result.Status);
+        Assert.Contains("disabled by server configuration", result.Message);
+    }
+
+    [Fact]
+    public async Task CompleteManualFulfillment_ProductRemovedFromAllowlist_BlocksCompletion_PreservesAttempt()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "sku_removed");
+
+        // 1. Initially SKU is approved, start manual fulfillment
+        var service1 = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        var startResult = await service1.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+        Assert.True(startResult.IsSuccess);
+
+        // 2. Product is now removed from allowlist
+        var service2 = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { "DIFFERENT-SKU" } }));
+
+        var completeResult = await service2.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = "TICKET-SAFE-REF",
+                DeliveryChannel = "EmailSupport"
+            });
+
+        Assert.False(completeResult.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.Forbidden, completeResult.Status);
+        Assert.Contains("not approved", completeResult.Message);
+
+        // Verify attempt and fulfillment preserved in database and NOT marked completed
+        var fulfillment = await db.Fulfillments.Include(f => f.Attempts).FirstAsync(f => f.OrderItemId == item.Id);
+        Assert.Equal(FulfillmentStatus.InProgress, fulfillment.Status);
+        Assert.Equal(0, fulfillment.QuantityFulfilled);
+        Assert.Single(fulfillment.Attempts);
+        Assert.Equal(FulfillmentAttemptStatus.Submitted, fulfillment.Attempts.First().Status);
+
+        var refreshedOrder = await db.Orders.FirstAsync(o => o.Id == order.Id);
+        Assert.Equal(OrderStatus.Processing, refreshedOrder.Status);
+    }
+
+    [Theory]
+    [InlineData("EmailSupport")]
+    [InlineData("WhatsAppDirect")]
+    [InlineData("TelegramManual")]
+    [InlineData("InternalPortal")]
+    public async Task CompleteManualFulfillment_ApprovedChannels_Accepted(string channel)
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, $"channel_{channel.ToLowerInvariant()}");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = $"DISPATCH-REF-{channel}",
+                DeliveryChannel = channel,
+                Notes = "Standard authorized dispatch procedure completed."
+            });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.Success, result.Status);
+    }
+
+    [Theory]
+    [InlineData("CarrierPigeon")]
+    [InlineData("DirectPhoneCall")]
+    [InlineData("PersonalSms")]
+    [InlineData("UnknownChannel")]
+    public async Task CompleteManualFulfillment_UnapprovedChannel_Rejected(string invalidChannel)
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "unapproved_chan");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = "TICKET-VALID-123",
+                DeliveryChannel = invalidChannel
+            });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.BadRequest, result.Status);
+        Assert.Contains("Invalid delivery channel", result.Message);
+    }
+
+    [Theory]
+    [InlineData("N/A")]
+    [InlineData("NA")]
+    [InlineData("none")]
+    [InlineData("null")]
+    [InlineData("0000")]
+    [InlineData("TEST")]
+    [InlineData("DEMO")]
+    [InlineData("DELIVERED")]
+    [InlineData("OK")]
+    [InlineData("COMPLETED")]
+    public async Task CompleteManualFulfillment_AmbiguousReferencePlaceholders_Rejected(string placeholder)
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, $"ph_{placeholder.ToLowerInvariant()}");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = placeholder,
+                DeliveryChannel = "EmailSupport"
+            });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.BadRequest, result.Status);
+        Assert.Contains("Ambiguous placeholders", result.Message);
+    }
+
+    [Theory]
+    [InlineData("TICKET 12345")] // Space inside
+    [InlineData("TICKET\"12345")] // Quote
+    [InlineData("TICKET'12345")] // Single quote
+    [InlineData("<script>")] // HTML tag
+    [InlineData("AB")] // Too short (< 5 chars)
+    [InlineData("UNAPPROVED-REF-123")] // Unapproved prefix
+    [InlineData("ORDER-999")] // Unapproved prefix
+    public async Task CompleteManualFulfillment_InvalidReferenceFormat_Rejected(string badRef)
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "bad_ref");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = badRef,
+                DeliveryChannel = "EmailSupport"
+            });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.BadRequest, result.Status);
+    }
+
+    [Theory]
+    [InlineData("mock_test_password_pattern")]
+    [InlineData("mock_test_token_flag")]
+    [InlineData("mock_api_key_flag")]
+    [InlineData("mock_secret_flag")]
+    [InlineData("http://mock-invalid-url.local")]
+    [InlineData("https://mock-unapproved-link.local")]
+    [InlineData("<script>mock</script>")]
+    [InlineData("Unapproved arbitrary free text comment by operator")]
+    public async Task CompleteManualFulfillment_NotesContainingCredentialsOrUrls_Rejected(string sensitiveNote)
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "sens_notes");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = "TICKET-SECURE-999",
+                DeliveryChannel = "InternalPortal",
+                Notes = sensitiveNote
+            });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.BadRequest, result.Status);
+        Assert.Contains("prohibited", result.Message.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task CompleteManualFulfillment_NotesExceeding200Chars_Rejected()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "long_notes");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var longNote = new string('A', 201);
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = "TICKET-SECURE-999",
+                DeliveryChannel = "InternalPortal",
+                Notes = longNote
+            });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.BadRequest, result.Status);
+        Assert.Contains("cannot exceed 200 characters", result.Message);
+    }
+
+    [Fact]
+    public async Task CompleteManualFulfillment_SafeOperationalNotes_Accepted()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var (order, item, _) = await SeedEligibleProcessingOrderAsync(db, "safe_notes");
+
+        var service = new FulfillmentService(
+            db,
+            NullLogger<FulfillmentService>.Instance,
+            Options.Create(new ManualFulfillmentOptions { Enabled = true, ApprovedProductSkus = new() { item.ProductSkuSnapshot } }));
+
+        await service.StartManualFulfillmentAsync(order.OrderNumber, item.Id, "admin-1");
+
+        var safeNote = "Standard delivery completed.";
+        var result = await service.CompleteManualFulfillmentAsync(
+            order.OrderNumber,
+            item.Id,
+            "admin-1",
+            new AdminCompleteManualFulfillmentRequest
+            {
+                ConfirmDelivered = true,
+                DeliveryReference = "TICKET-SECURE-999",
+                DeliveryChannel = "InternalPortal",
+                Notes = safeNote
+            });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ManualFulfillmentOperationStatus.Success, result.Status);
+
+        var fulfillment = await db.Fulfillments.Include(f => f.Attempts).FirstAsync(f => f.OrderItemId == item.Id);
+        Assert.Single(fulfillment.Attempts);
+        Assert.Equal(safeNote, fulfillment.Attempts.First().Notes);
     }
 }

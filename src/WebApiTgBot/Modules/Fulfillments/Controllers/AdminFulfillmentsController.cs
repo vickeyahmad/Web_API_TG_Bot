@@ -223,4 +223,20 @@ public class AdminFulfillmentsController : ControllerBase
         var result = await _fulfillmentService.GetFulfillmentsAsync(query, cancellationToken);
         return Ok(ApiResponse<PagedResult<AdminFulfillmentSummaryDto>>.Ok(result, "Fulfillments retrieved successfully."));
     }
+
+    /// <summary>
+    /// Retrieves operational capabilities and feature availability for administrative fulfillment workflows.
+    /// Allows the admin interface to inspect feature availability and product eligibility without guessing.
+    /// Strictly read-only; executes zero database queries and exposes zero secrets.
+    /// </summary>
+    [HttpGet("/api/admin/fulfillment-capabilities")]
+    [EnableRateLimiting("AdminOrderLimiter")]
+    [ProducesResponseType(typeof(ApiResponse<AdminFulfillmentCapabilitiesDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AdminFulfillmentCapabilitiesDto>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<AdminFulfillmentCapabilitiesDto>), StatusCodes.Status403Forbidden)]
+    public IActionResult GetCapabilities([FromQuery] string? productSku)
+    {
+        var capabilities = _fulfillmentService.GetCapabilities(productSku);
+        return Ok(ApiResponse<AdminFulfillmentCapabilitiesDto>.Ok(capabilities, "Fulfillment capabilities retrieved successfully."));
+    }
 }

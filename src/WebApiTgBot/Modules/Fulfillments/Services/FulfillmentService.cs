@@ -456,6 +456,18 @@ public class FulfillmentService : IFulfillmentService
                 return ManualFulfillmentOperationResult.NotFound($"Order item {orderItemId} does not belong to order '{orderNumber}'.");
             }
 
+            // 5b. Fail-closed product eligibility allowlist check
+            var effectiveSku = !string.IsNullOrWhiteSpace(orderItem.ProductSkuSnapshot)
+                ? orderItem.ProductSkuSnapshot
+                : orderItem.Product?.InternalSku;
+
+            if (!_manualFulfillmentOptions.Value.IsProductApproved(effectiveSku))
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                _logger.LogWarning("Manual fulfillment start rejected: Product '{ProductSku}' on order item {OrderItemId} is not approved for manual fulfillment.", effectiveSku, orderItemId);
+                return ManualFulfillmentOperationResult.Forbidden($"Product '{effectiveSku}' is not approved for manual fulfillment under current policy.");
+            }
+
             // 6. Safe initialization / retrieval of Fulfillment record for this line item
             var fulfillment = await _db.Fulfillments
                 .Include(f => f.Attempts)
@@ -598,38 +610,29 @@ public class FulfillmentService : IFulfillmentService
             return ManualFulfillmentOperationResult.BadRequest("Admin user ID is required.");
         }
 
-        // 2. Validate request parameters & sanitize text fields
+        // 2. Validate request parameters & sanitize text fields using ManualFulfillmentEvidenceValidator
         if (!request.ConfirmDelivered)
         {
             return ManualFulfillmentOperationResult.BadRequest("Explicit confirmation of delivery (ConfirmDelivered = true) is strictly required.");
         }
 
-        var deliveryRef = request.DeliveryReference?.Trim();
-        if (string.IsNullOrWhiteSpace(deliveryRef) || deliveryRef.Length < 3 || deliveryRef.Length > 100)
+        var (refValid, refError, normalizedRef) = ManualFulfillmentEvidenceValidator.ValidateReference(request.DeliveryReference);
+        if (!refValid)
         {
-            return ManualFulfillmentOperationResult.BadRequest("A valid external delivery reference or support ticket identifier between 3 and 100 characters is required.");
+            return ManualFulfillmentOperationResult.BadRequest(refError!);
         }
 
-        if (deliveryRef.Contains('<') || deliveryRef.Contains('>'))
+        var (channelValid, channelError, normalizedChannel) = ManualFulfillmentEvidenceValidator.ValidateChannel(request.DeliveryChannel);
+        if (!channelValid)
         {
-            return ManualFulfillmentOperationResult.BadRequest("DeliveryReference contains invalid characters.");
+            return ManualFulfillmentOperationResult.BadRequest(channelError!);
         }
 
-        var deliveryChannel = request.DeliveryChannel?.Trim();
-        if (string.IsNullOrWhiteSpace(deliveryChannel) || deliveryChannel.Length < 2 || deliveryChannel.Length > 50)
+        var (notesValid, notesError, normalizedNotes) = ManualFulfillmentEvidenceValidator.ValidateNotes(request.Notes);
+        if (!notesValid)
         {
-            return ManualFulfillmentOperationResult.BadRequest("A valid non-sensitive delivery channel identifier between 2 and 50 characters is required.");
-        }
-
-        if (deliveryChannel.Contains('<') || deliveryChannel.Contains('>'))
-        {
-            return ManualFulfillmentOperationResult.BadRequest("DeliveryChannel contains invalid characters.");
-        }
-
-        var notes = request.Notes?.Trim();
-        if (notes != null && (notes.Contains('<') || notes.Contains('>')))
-        {
-            return ManualFulfillmentOperationResult.BadRequest("Notes contain invalid characters.");
+            _logger.LogWarning("Manual fulfillment complete rejected: notes failed security validation for Order {OrderNumber}, Item {OrderItemId}.", orderNumber, orderItemId);
+            return ManualFulfillmentOperationResult.BadRequest(notesError!);
         }
 
         await using var tx = _db.Database.IsRelational()
@@ -683,12 +686,25 @@ public class FulfillmentService : IFulfillmentService
 
             // 5. Verify purchased OrderItem belongs to the Order
             var orderItem = await _db.OrderItems
+                .Include(oi => oi.Product)
                 .FirstOrDefaultAsync(oi => oi.Id == orderItemId && oi.OrderId == order.Id, cancellationToken);
 
             if (orderItem == null)
             {
                 if (tx != null) await tx.RollbackAsync(cancellationToken);
                 return ManualFulfillmentOperationResult.NotFound($"Order item {orderItemId} does not belong to order '{orderNumber}'.");
+            }
+
+            // 5b. Verify Product remains approved on the manual fulfillment allowlist
+            var effectiveSku = !string.IsNullOrWhiteSpace(orderItem.ProductSkuSnapshot)
+                ? orderItem.ProductSkuSnapshot
+                : orderItem.Product?.InternalSku;
+
+            if (!_manualFulfillmentOptions.Value.IsProductApproved(effectiveSku))
+            {
+                if (tx != null) await tx.RollbackAsync(cancellationToken);
+                _logger.LogWarning("Manual fulfillment complete rejected: Product '{ProductSku}' on order item {OrderItemId} is not approved for manual fulfillment.", effectiveSku, orderItemId);
+                return ManualFulfillmentOperationResult.Forbidden($"Cannot complete manual fulfillment: Product '{effectiveSku}' is not approved for manual fulfillment under current policy.");
             }
 
             // 6. Query Fulfillment with attempts
@@ -733,9 +749,9 @@ public class FulfillmentService : IFulfillmentService
             var now = DateTime.UtcNow;
             activeAttempt.Status = FulfillmentAttemptStatus.Succeeded;
             activeAttempt.ConfirmedByUserId = adminUserId;
-            activeAttempt.DeliveryReference = deliveryRef;
-            activeAttempt.DeliveryChannel = deliveryChannel;
-            activeAttempt.Notes = notes;
+            activeAttempt.DeliveryReference = normalizedRef;
+            activeAttempt.DeliveryChannel = normalizedChannel;
+            activeAttempt.Notes = normalizedNotes;
             activeAttempt.CompletedAt = now;
             activeAttempt.UpdatedAt = now;
 
@@ -752,7 +768,7 @@ public class FulfillmentService : IFulfillmentService
                 FulfillmentId = fulfillment.Id,
                 PreviousStatus = previousFulfillmentStatus,
                 NewStatus = FulfillmentStatus.Completed,
-                Reason = $"Manual delivery confirmed via {deliveryChannel}. Ref: {deliveryRef}",
+                Reason = $"Manual delivery confirmed via {normalizedChannel}. Ref: {normalizedRef}",
                 ChangedByUserId = adminUserId,
                 ChangedAt = now
             };
@@ -1090,5 +1106,45 @@ public class FulfillmentService : IFulfillmentService
         }).ToList();
 
         return new PagedResult<AdminFulfillmentSummaryDto>(dtos, page, pageSize, totalCount);
+    }
+
+    /// <inheritdoc />
+    public AdminFulfillmentCapabilitiesDto GetCapabilities(string? productSku = null)
+    {
+        var options = _manualFulfillmentOptions.Value;
+        var globallyEnabled = options.Enabled;
+        var approvedCount = options.ApprovedProductSkus?.Count ?? 0;
+        var hasPolicy = approvedCount > 0;
+        var effectivelyAvailable = globallyEnabled && hasPolicy;
+
+        string statusMessage;
+        if (!globallyEnabled)
+        {
+            statusMessage = "Manual fulfillment is disabled by server configuration.";
+        }
+        else if (!hasPolicy)
+        {
+            statusMessage = "Manual fulfillment is disabled: product allowlist is empty (fail-closed policy).";
+        }
+        else
+        {
+            statusMessage = $"Manual fulfillment is active for {approvedCount} approved product(s).";
+        }
+
+        bool? isProductApproved = null;
+        if (!string.IsNullOrWhiteSpace(productSku))
+        {
+            isProductApproved = options.IsProductApproved(productSku);
+        }
+
+        return new AdminFulfillmentCapabilitiesDto
+        {
+            IsGloballyEnabled = globallyEnabled,
+            HasProductAllowlistPolicy = hasPolicy,
+            ApprovedProductCount = approvedCount,
+            IsEffectivelyAvailable = effectivelyAvailable,
+            StatusMessage = statusMessage,
+            IsProductApproved = isProductApproved
+        };
     }
 }
