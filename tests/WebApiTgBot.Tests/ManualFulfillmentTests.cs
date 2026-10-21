@@ -834,6 +834,7 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     // ── 5. PostgreSQL Concurrency & Database Integration Tests ────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_Concurrent_Double_Completion_Creates_Exactly_One_Success()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -942,6 +943,7 @@ public class ManualFulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_Concurrent_Double_Start_Creates_Exactly_One_Attempt()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

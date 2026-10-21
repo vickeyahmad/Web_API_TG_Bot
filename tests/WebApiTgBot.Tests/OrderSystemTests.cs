@@ -339,6 +339,7 @@ public class OrderSystemTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_EnforcesUniqueOrderNumber_AndForeignKeys()
     {
         // Connect directly to the PostgreSQL database to verify schema constraints
@@ -567,6 +568,7 @@ public class OrderSystemTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_EnforcesRestrictDelete_OnOrdersWithItemsAndHistory()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

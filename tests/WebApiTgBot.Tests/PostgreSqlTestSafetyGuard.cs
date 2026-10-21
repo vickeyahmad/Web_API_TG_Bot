@@ -117,7 +117,8 @@ public static class PostgreSqlTestSafetyGuard
 
     /// <summary>
     /// Validates a PostgreSQL connection string format, target database name, host, and port.
-    /// Rejects prohibited names, prohibited patterns, remote hosts, and unapproved database targets.
+    /// Rejects prohibited names, prohibited patterns, remote hosts, unapproved database targets,
+    /// and unapproved routing or resolution parameters (e.g., TargetSessionAttributes, Service, Passfile, Multiplexing).
     /// Guaranteed to never include passwords in any thrown exception.
     /// </summary>
     public static void ValidateConnectionString(string? connectionString)
@@ -126,6 +127,9 @@ public static class PostgreSqlTestSafetyGuard
         {
             throw new PostgreSqlTestSafetyException("PostgreSQL test connection string cannot be null, empty, or whitespace.");
         }
+
+        // 1. Check for prohibited parameters in connection string text before builder parsing
+        ValidateProhibitedParametersText(connectionString);
 
         NpgsqlConnectionStringBuilder builder;
         try
@@ -137,9 +141,58 @@ public static class PostgreSqlTestSafetyGuard
             throw new PostgreSqlTestSafetyException("Invalid PostgreSQL connection string format.", ex);
         }
 
+        // 2. Validate parsed builder properties
+        ValidateRoutingAndResolutionParameters(builder);
         ValidateDatabaseName(builder.Database);
         ValidateHost(builder.Host);
         ValidatePort(builder.Port);
+    }
+
+    /// <summary>
+    /// Inspects the connection string text for prohibited parameters like Service, Passfile,
+    /// or TargetSessionAttributes that might redirect routing.
+    /// </summary>
+    public static void ValidateProhibitedParametersText(string connectionString)
+    {
+        if (connectionString.Contains("Target Session Attributes", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.Contains("TargetSessionAttributes", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: 'Target Session Attributes' routing parameter is strictly prohibited in test execution.");
+        }
+
+        if (connectionString.Contains("Service=", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.Contains("Service =", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: 'Service' parameter is strictly prohibited in test execution to prevent external service file routing.");
+        }
+
+        if (connectionString.Contains("Passfile=", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.Contains("Passfile =", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: 'Passfile' parameter is strictly prohibited in test execution.");
+        }
+    }
+
+    /// <summary>
+    /// Inspects and rejects unapproved Npgsql connection-routing, multi-host, or service-based
+    /// resolution mechanisms that could redirect the target away from the verified local test database.
+    /// </summary>
+    public static void ValidateRoutingAndResolutionParameters(NpgsqlConnectionStringBuilder builder)
+    {
+        if (!string.IsNullOrWhiteSpace(builder.TargetSessionAttributes))
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: 'Target Session Attributes' routing parameter is strictly prohibited in test execution.");
+        }
+
+        if (builder.Multiplexing)
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: Npgsql multiplexing is strictly prohibited in test execution.");
+        }
     }
 
     /// <summary>
@@ -193,7 +246,7 @@ public static class PostgreSqlTestSafetyGuard
 
     /// <summary>
     /// Validates that the database host is restricted to approved local targets.
-    /// Strictly rejects remote hostnames, cloud IPs, or unauthorized domains.
+    /// Strictly rejects remote hostnames, cloud IPs, unauthorized domains, multi-host lists, or path-based sockets.
     /// </summary>
     public static void ValidateHost(string? host)
     {
@@ -203,6 +256,13 @@ public static class PostgreSqlTestSafetyGuard
         }
 
         var normalized = host.Trim();
+
+        if (normalized.Contains(',') || normalized.Contains('/') || normalized.Contains('\\'))
+        {
+            throw new PostgreSqlTestSafetyException(
+                $"SAFETY VIOLATION: Multi-host or path-based database host '{normalized}' is strictly prohibited.");
+        }
+
         if (!ApprovedHosts.Any(h => string.Equals(h, normalized, StringComparison.OrdinalIgnoreCase)))
         {
             throw new PostgreSqlTestSafetyException(
@@ -315,6 +375,20 @@ public static class PostgreSqlTestSafetyGuard
         catch
         {
             return "[REDACTED_INVALID_FORMAT]";
+        }
+    }
+
+    /// <summary>
+    /// Asserts that mandatory database preflight has been successfully completed and verified.
+    /// Guaranteed to fail closed if preflight was omitted or failed.
+    /// </summary>
+    public static void AssertPreflightVerified(bool isPreflightVerified)
+    {
+        if (!isPreflightVerified)
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: Database preflight is not verified. " +
+                "Mandatory EnsureDatabasePreflightAsync() must be successfully completed before executing database operations.");
         }
     }
 }

@@ -748,6 +748,7 @@ public class AdminVendorTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_EnforcesUniqueVendorProductConstraint_AndForeignKeys()
     {
         // This test connects directly to PostgreSQL to verify database constraints

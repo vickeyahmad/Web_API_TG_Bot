@@ -547,6 +547,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_UniquePaidOrderPaymentIndex_BlocksDoublePaidPaymentsAtEngineLevel()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -630,6 +631,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ConcurrentDuplicatePayment_SameOrder_ExactlyOneDebitsAndSucceeds()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -765,6 +767,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ConcurrentCompetingOrders_ScenarioA_ExactlyOneSucceeds_NoOverdraw()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -1068,6 +1071,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_InjectedFailure_AfterDebitBeforeCommit_RollsBackAllFinancialState()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -1178,6 +1182,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ConcurrentDuplicatePayment_SameOrder_DifferentIdempotencyKeys_NeverDoubleDebits()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -1306,6 +1311,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_SameIdempotencyKey_AcrossDifferentOrders_SameCustomerBlocked_DifferentCustomersAllowed()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -1455,6 +1461,7 @@ public class CustomerWalletOrderPaymentTests : IClassFixture<CustomWebApplicatio
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ConcurrentCompetingOrders_SameCustomer_SameIdempotencyKey_ExactlyOneSucceeds()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

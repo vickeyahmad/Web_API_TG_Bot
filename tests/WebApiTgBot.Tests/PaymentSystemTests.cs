@@ -731,6 +731,7 @@ public class PaymentSystemTests : IClassFixture<CustomWebApplicationFactory>
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_Payments_ForeignKeys_AndUniquenessConstraints()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

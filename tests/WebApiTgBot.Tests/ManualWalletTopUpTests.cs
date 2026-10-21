@@ -761,6 +761,7 @@ public class ManualWalletTopUpTests : IClassFixture<CustomWebApplicationFactory>
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_TopUpConstraints_PurposeTarget_PositiveAmount_UniquePaidRef()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -1313,6 +1314,7 @@ public class ManualWalletTopUpTests : IClassFixture<CustomWebApplicationFactory>
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ConcurrentApproval_ExactlyOneSucceeds_NoDoubleCredit_LoserGetsConflict()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

@@ -21,6 +21,7 @@ namespace WebApiTgBot.Tests;
 /// - Zero impact on existing Order and Payment statuses.
 /// - Direct PostgreSQL verification against isolated webapitgbot_test database.
 /// </summary>
+[Trait("Category", "PostgreSqlIntegration")]
 public class WalletSystemTests
 {
     private readonly DbContextOptions<AppDbContext> _dbOptions;
@@ -60,6 +61,7 @@ public class WalletSystemTests
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_Initialized_HasZeroBalanceAndPkrCurrency()
     {
         await using var db = await CreateDbContextAsync();
@@ -93,6 +95,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_OneWalletPerCustomerAndCurrency_EnforcesUniqueness()
     {
         await using var db = await CreateDbContextAsync();
@@ -133,6 +136,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_ConcurrentInitialization_CreatesOnlyOneWallet()
     {
         await using var db = await CreateDbContextAsync();
@@ -178,6 +182,7 @@ public class WalletSystemTests
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_Credit_IncreasesBalanceAndReturnsSuccess()
     {
         await using var db = await CreateDbContextAsync();
@@ -229,6 +234,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_Debit_DecreasesBalanceAndReturnsSuccess()
     {
         await using var db = await CreateDbContextAsync();
@@ -289,6 +295,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_Debit_WithInsufficientFunds_IsRejected()
     {
         await using var db = await CreateDbContextAsync();
@@ -347,6 +354,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_ZeroOrNegativeAmount_IsRejected()
     {
         await using var db = await CreateDbContextAsync();
@@ -406,6 +414,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_WrongCurrency_IsRejected()
     {
         await using var db = await CreateDbContextAsync();
@@ -456,6 +465,7 @@ public class WalletSystemTests
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_Transactions_CreateCorrectLedgerEntries_AndAccurateBalances()
     {
         await using var db = await CreateDbContextAsync();
@@ -540,6 +550,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_BalanceAndLedgerChanges_RollbackTogetherOnFailure()
     {
         await using var db = await CreateDbContextAsync();
@@ -612,6 +623,7 @@ public class WalletSystemTests
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_RepeatedCredit_WithSameOperationKey_DoesNotDoubleCredit()
     {
         await using var db = await CreateDbContextAsync();
@@ -665,6 +677,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_RepeatedDebit_WithSameOperationKey_DoesNotDoubleDebit_EvenAtZeroBalance()
     {
         await using var db = await CreateDbContextAsync();
@@ -726,6 +739,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_SameOperationKey_WithConflictingInput_IsRejected()
     {
         await using var db = await CreateDbContextAsync();
@@ -795,6 +809,7 @@ public class WalletSystemTests
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_TwoSimultaneousDebits_CannotOverspendWallet()
     {
         await using var db = await CreateDbContextAsync();
@@ -872,6 +887,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ConcurrentDistinctCredits_ProduceCorrectFinalBalance()
     {
         await using var db = await CreateDbContextAsync();
@@ -922,6 +938,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_DuplicateConcurrentRequests_ProduceOneMutation()
     {
         await using var db = await CreateDbContextAsync();
@@ -978,6 +995,7 @@ public class WalletSystemTests
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_HistoricalLedger_NotDeletedThroughCascadingDeletes()
     {
         await using var db = await CreateDbContextAsync();
@@ -1045,6 +1063,7 @@ public class WalletSystemTests
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task Wallet_StandaloneOperations_DoNotMutateExistingOrdersOrPayments()
     {
         await using var db = await CreateDbContextAsync();

@@ -379,6 +379,7 @@ public class FulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_Fulfillments_Unique_OrderItemId_And_ForeignKeys_Enforced()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -430,6 +431,7 @@ public class FulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_Fulfillments_Quantity_Check_Constraints_Enforced()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -484,6 +486,7 @@ public class FulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_FulfillmentAttempts_AttemptKey_Uniqueness_Enforced()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -544,6 +547,7 @@ public class FulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_NonDestructive_Cascading_Delete_Prohibited()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
@@ -829,6 +833,7 @@ public class FulfillmentTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_Concurrent_Fulfillment_Initialization_Creates_Exactly_One_Record()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

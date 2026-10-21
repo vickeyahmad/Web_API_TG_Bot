@@ -829,6 +829,7 @@ public class AdminOrdersTests : IClassFixture<CustomWebApplicationFactory>
     // ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_StartProcessing_ConcurrentAdminRequests_ExactlyOneTransitions()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

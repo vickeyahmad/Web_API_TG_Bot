@@ -548,6 +548,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
     private static string PostgresTestConnectionString => PostgreSqlTestDatabase.GetConnectionString();
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_EnforcesDurableIdempotency_AndUniqueConstraint()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -693,6 +694,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_SimultaneousRequests_CreateExactlyOneOrder_AndBothReceiveOriginalOrSafeResponse()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -816,6 +818,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_RepeatingRequest_AfterPriceChangeAndDisable_ReturnsOriginalOrderAndFrozenPrice()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -932,6 +935,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_ReusingSameKey_ForDifferentProduct_Returns409Conflict()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -1044,6 +1048,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_DifferentCustomers_CanIndependentlyUseSameIdempotencyKey()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -1136,6 +1141,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_FailedTransaction_LeavesNoIncompleteRecords()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

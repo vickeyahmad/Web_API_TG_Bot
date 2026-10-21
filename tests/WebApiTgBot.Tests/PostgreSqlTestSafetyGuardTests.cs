@@ -289,4 +289,287 @@ public class PostgreSqlTestSafetyGuardTests
             Environment.SetEnvironmentVariable(PostgreSqlTestSafetyGuard.OptInEnvironmentVariable, original);
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MILESTONE 6B-6E3B2 PURE SAFETY TESTS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    // 17. Fail-closed preflight enforcement: ALL HTTP methods rejected before preflight
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("HEAD")]
+    [InlineData("OPTIONS")]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task PostgreSqlPreflightGuardedHandler_RejectsAllHttpMethods_WhenPreflightNotVerified(string method)
+    {
+        using var factory = new PostgreSqlWebApplicationFactory();
+        Assert.False(factory.IsPreflightVerified);
+
+        var innerHandler = new TestStubHttpMessageHandler();
+        var guardedHandler = new PostgreSqlPreflightGuardedHandler(factory, innerHandler);
+        var invoker = new HttpMessageInvoker(guardedHandler);
+
+        var request = new HttpRequestMessage(new HttpMethod(method), "http://localhost/api/admin/orders/ORD-1/items/1/manual-fulfillment/start");
+        var ex = await Assert.ThrowsAsync<PostgreSqlTestSafetyException>(() =>
+            invoker.SendAsync(request, CancellationToken.None));
+
+        Assert.Contains("before EnsureDatabasePreflightAsync() was completed", ex.Message);
+        Assert.Contains(method, ex.Message);
+    }
+
+    // 18. Preflight guarded handler allows requests when verified
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task PostgreSqlPreflightGuardedHandler_AllowsRequests_WhenPreflightIsVerified(string method)
+    {
+        using var factory = new PostgreSqlWebApplicationFactory();
+        factory.SetPreflightVerifiedForSafetyTesting(true);
+        Assert.True(factory.IsPreflightVerified);
+
+        var innerHandler = new TestStubHttpMessageHandler();
+        var guardedHandler = new PostgreSqlPreflightGuardedHandler(factory, innerHandler);
+        var invoker = new HttpMessageInvoker(guardedHandler);
+
+        var request = new HttpRequestMessage(new HttpMethod(method), "http://localhost/api/admin/orders/ORD-1/items/1/manual-fulfillment/start");
+        var response = await invoker.SendAsync(request, CancellationToken.None);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // 19. Regression: Mutating GET /api/customer/wallet and other GET requests are strictly blocked before preflight
+    [Fact]
+    public async Task PostgreSqlPreflightGuardedHandler_RejectsGetWallet_WhenPreflightNotVerified()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory();
+        Assert.False(factory.IsPreflightVerified);
+
+        var innerHandler = new TestStubHttpMessageHandler();
+        var guardedHandler = new PostgreSqlPreflightGuardedHandler(factory, innerHandler);
+        var invoker = new HttpMessageInvoker(guardedHandler);
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/api/customer/wallet");
+        var ex = await Assert.ThrowsAsync<PostgreSqlTestSafetyException>(() =>
+            invoker.SendAsync(request, CancellationToken.None));
+
+        Assert.Contains("before EnsureDatabasePreflightAsync() was completed", ex.Message);
+        Assert.Contains("GET", ex.Message);
+    }
+
+    // 19b. Regression: PostgreSqlPreflightStartupFilter rejects GET and all methods inside the server pipeline
+    [Theory]
+    [InlineData("GET", "/api/customer/wallet")]
+    [InlineData("POST", "/api/admin/orders/ORD-1/items/1/manual-fulfillment/start")]
+    public async Task PostgreSqlPreflightStartupFilter_RejectsRequestsInPipeline_WhenPreflightNotVerified(string method, string path)
+    {
+        using var factory = new PostgreSqlWebApplicationFactory();
+        Assert.False(factory.IsPreflightVerified);
+
+        var filter = new PostgreSqlPreflightStartupFilter(factory);
+        var builder = new Microsoft.AspNetCore.Builder.ApplicationBuilder(null!);
+        var configure = filter.Configure(_ => { });
+        configure(builder);
+        var requestDelegate = builder.Build();
+
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        context.Request.Method = method;
+        context.Request.Path = path;
+
+        var ex = await Assert.ThrowsAsync<PostgreSqlTestSafetyException>(() =>
+            requestDelegate(context));
+
+        Assert.Contains("before EnsureDatabasePreflightAsync() was completed", ex.Message);
+        Assert.Contains(method, ex.Message);
+    }
+
+    // 20. Failed preflight leaves verification state false
+    [Fact]
+    public void FailedPreflight_LeavesVerificationStateFalse()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory();
+        Assert.False(factory.IsPreflightVerified);
+
+        factory.ResetPreflightStateForTesting();
+        Assert.False(factory.IsPreflightVerified);
+
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.AssertPreflightVerified(factory.IsPreflightVerified));
+        Assert.Contains("Database preflight is not verified", ex.Message);
+    }
+
+    // 21. Fixture initialization requires verified preflight and opt-in
+    [Fact]
+    public void FixtureInitialization_RequiresVerifiedPreflight_ThrowsWhenUnmigrated()
+    {
+        var original = Environment.GetEnvironmentVariable(PostgreSqlTestSafetyGuard.OptInEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(PostgreSqlTestSafetyGuard.OptInEnvironmentVariable, null);
+
+            var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+                PostgreSqlTestDatabase.AssertMigrated());
+
+            Assert.Contains("PostgreSQL integration test execution is disabled", ex.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PostgreSqlTestSafetyGuard.OptInEnvironmentVariable, original);
+        }
+    }
+
+    // 22. Target Session Attributes routing parameter rejected
+    [Fact]
+    public void TargetSessionAttributes_RoutingParameter_IsStrictlyRejected()
+    {
+        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=u;Password=p;Target Session Attributes=primary";
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
+        Assert.Contains("Target Session Attributes", ex.Message);
+    }
+
+    // 23. Service resolution parameter rejected
+    [Fact]
+    public void ServiceParameter_Resolution_IsStrictlyRejected()
+    {
+        var connStr = "Service=myservice;Database=webapitgbot_test;Username=u;Password=p";
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
+        Assert.Contains("Service", ex.Message);
+    }
+
+    // 24. Passfile parameter rejected
+    [Fact]
+    public void PassfileParameter_IsStrictlyRejected()
+    {
+        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=u;Passfile=/path/to/.pgpass";
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
+        Assert.Contains("Passfile", ex.Message);
+    }
+
+    // 25. Multi-host comma-separated hosts rejected
+    [Theory]
+    [InlineData("Host=localhost,remotehost;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
+    [InlineData("Host=localhost,127.0.0.1;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
+    public void MultiHostConnectionString_IsStrictlyRejected(string multiHostConnStr)
+    {
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(multiHostConnStr));
+        Assert.Contains("Multi-host or path-based database host", ex.Message);
+    }
+
+    // 26. Path-based / socket hosts rejected
+    [Theory]
+    [InlineData("Host=/var/run/postgresql;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
+    [InlineData(@"Host=\\.\pipe\postgresql;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
+    public void PathBasedHost_IsStrictlyRejected(string pathHostConnStr)
+    {
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(pathHostConnStr));
+        Assert.Contains("Multi-host or path-based database host", ex.Message);
+    }
+
+    private static bool HasPostgreSqlIntegrationTrait(System.Reflection.MemberInfo member)
+    {
+        return member.GetCustomAttributesData().Any(a =>
+            a.AttributeType == typeof(TraitAttribute) &&
+            a.ConstructorArguments.Count >= 2 &&
+            string.Equals(a.ConstructorArguments[0].Value?.ToString(), "Category", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(a.ConstructorArguments[1].Value?.ToString(), "PostgreSqlIntegration", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // 27. Test categorization discovery: ManualFulfillmentApiIntegrationTests has PostgreSqlIntegration trait
+    [Fact]
+    public void ManualFulfillmentApiIntegrationTests_HasPostgreSqlIntegrationTrait()
+    {
+        var type = typeof(ManualFulfillmentApiIntegrationTests);
+        Assert.True(HasPostgreSqlIntegrationTrait(type), "ManualFulfillmentApiIntegrationTests must have Category=PostgreSqlIntegration at class level.");
+
+        var testMethods = type.GetMethods()
+            .Where(m => m.GetCustomAttributes(typeof(FactAttribute), true).Any() ||
+                        m.GetCustomAttributes(typeof(TheoryAttribute), true).Any())
+            .ToList();
+
+        Assert.Equal(30, testMethods.Count);
+        foreach (var m in testMethods)
+        {
+            Assert.True(HasPostgreSqlIntegrationTrait(m), $"Method {m.Name} must have Category=PostgreSqlIntegration trait.");
+        }
+    }
+
+    // 28. Test categorization discovery: WalletSystemTests has PostgreSqlIntegration trait
+    [Fact]
+    public void WalletSystemTests_HasPostgreSqlIntegrationTrait()
+    {
+        var type = typeof(WalletSystemTests);
+        Assert.True(HasPostgreSqlIntegrationTrait(type), "WalletSystemTests must have Category=PostgreSqlIntegration at class level.");
+
+        var testMethods = type.GetMethods()
+            .Where(m => m.GetCustomAttributes(typeof(FactAttribute), true).Any() ||
+                        m.GetCustomAttributes(typeof(TheoryAttribute), true).Any())
+            .ToList();
+
+        Assert.Equal(18, testMethods.Count);
+        foreach (var m in testMethods)
+        {
+            Assert.True(HasPostgreSqlIntegrationTrait(m), $"Method {m.Name} must have Category=PostgreSqlIntegration trait.");
+        }
+    }
+
+    // 29. Pure safety tests are not mistakenly categorized as PostgreSQL-connected
+    [Fact]
+    public void PureSafetyTests_AreNotMistakenlyCategorizedAsPostgreSqlIntegration()
+    {
+        var type = typeof(PostgreSqlTestSafetyGuardTests);
+        Assert.False(HasPostgreSqlIntegrationTrait(type), "PostgreSqlTestSafetyGuardTests must NOT have Category=PostgreSqlIntegration at class level.");
+
+        var testMethods = type.GetMethods()
+            .Where(m => m.GetCustomAttributes(typeof(FactAttribute), true).Any() ||
+                        m.GetCustomAttributes(typeof(TheoryAttribute), true).Any())
+            .ToList();
+
+        foreach (var m in testMethods)
+        {
+            Assert.False(HasPostgreSqlIntegrationTrait(m), $"Pure safety test {m.Name} must NOT have Category=PostgreSqlIntegration trait.");
+        }
+    }
+
+    // 30. All PostgreSql_ methods across test classes are properly categorized
+    [Fact]
+    public void AllPostgreSqlMethods_AcrossTestClasses_AreProperlyCategorized()
+    {
+        var testAssembly = typeof(PostgreSqlTestSafetyGuardTests).Assembly;
+        var testClasses = testAssembly.GetTypes()
+            .Where(t => t.IsClass && t.Name.EndsWith("Tests") && t != typeof(PostgreSqlTestSafetyGuardTests))
+            .ToList();
+
+        var pgMethods = testClasses
+            .SelectMany(t => t.GetMethods())
+            .Where(m => m.Name.StartsWith("PostgreSql_"))
+            .ToList();
+
+        Assert.True(pgMethods.Count >= 29, $"Expected at least 29 PostgreSql_ methods, but found {pgMethods.Count}.");
+
+        foreach (var m in pgMethods)
+        {
+            var hasCategory = HasPostgreSqlIntegrationTrait(m) ||
+                              (m.DeclaringType != null && HasPostgreSqlIntegrationTrait(m.DeclaringType));
+
+            Assert.True(hasCategory, $"Method {m.DeclaringType?.Name}.{m.Name} must have Category=PostgreSqlIntegration trait.");
+        }
+    }
+
+    private class TestStubHttpMessageHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        }
+    }
 }

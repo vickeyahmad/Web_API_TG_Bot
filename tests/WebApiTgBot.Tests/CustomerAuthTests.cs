@@ -482,6 +482,7 @@ public class CustomerAuthTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_CustomerIdentityIntegration_PersistsCustomerAndRoleCorrectly()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();

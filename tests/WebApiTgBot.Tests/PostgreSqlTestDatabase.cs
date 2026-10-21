@@ -92,6 +92,26 @@ public static class PostgreSqlTestDatabase
     }
 
     /// <summary>
+    /// Indicates whether EF Core migrations have been verified and applied to the test database.
+    /// </summary>
+    public static bool IsMigrated => _isMigrated;
+
+    /// <summary>
+    /// Asserts that the test database has completed preflight validation and migration.
+    /// Guards direct fixture inserts and raw DbContext test setup.
+    /// </summary>
+    public static void AssertMigrated()
+    {
+        PostgreSqlTestSafetyGuard.AssertExecutionAllowed();
+        if (!_isMigrated)
+        {
+            throw new PostgreSqlTestSafetyException(
+                "SAFETY VIOLATION: Test database has not completed preflight migration. " +
+                "PostgreSqlTestDatabase.EnsureMigratedAsync() must be successfully completed before executing database operations.");
+        }
+    }
+
+    /// <summary>
     /// Resets the migration lock state for testing purposes.
     /// </summary>
     public static void ResetMigrationStateForTesting()

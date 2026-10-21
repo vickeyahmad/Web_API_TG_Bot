@@ -712,6 +712,7 @@ public class AdminFulfillmentQueueTests : IClassFixture<CustomWebApplicationFact
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "PostgreSqlIntegration")]
     public async Task PostgreSql_GetFulfillments_TranslatesAndExecutesCleanly()
     {
         var options = PostgreSqlTestDatabase.CreateOptions();
