@@ -545,7 +545,7 @@ public class CustomerOrderTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(product.Name, fetchedOrder.Items[0].ProductName);
     }
 
-    private const string PostgresTestConnectionString = PostgreSqlTestDatabase.ConnectionString;
+    private static string PostgresTestConnectionString => PostgreSqlTestDatabase.GetConnectionString();
 
     [Fact]
     public async Task PostgreSql_EnforcesDurableIdempotency_AndUniqueConstraint()

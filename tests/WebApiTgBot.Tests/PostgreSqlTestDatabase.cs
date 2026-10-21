@@ -1,37 +1,74 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using WebApiTgBot.Infrastructure.Data;
 
 namespace WebApiTgBot.Tests;
 
 /// <summary>
 /// Centralized helper for managing the isolated PostgreSQL test database (webapitgbot_test).
-/// Ensures EF Core migrations are applied safely and idempotently before integration tests execute.
+/// Integrates with PostgreSqlTestSafetyGuard to enforce:
+/// 1. Explicit opt-in via GOGAA_ENABLE_POSTGRES_TESTS=true.
+/// 2. Connection string configured exclusively via GOGAA_TEST_POSTGRES_CONNECTION.
+/// 3. Pre-flight engine verification (SELECT current_database()).
+/// 4. Zero credentials hardcoded in source code or tracked files.
+/// 5. Fail-fast error reporting instead of silent test skips.
 /// </summary>
 public static class PostgreSqlTestDatabase
 {
-    public const string ConnectionString = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=webapitgbot;Password=Dev_Local_Password_2024!";
-
     private static readonly SemaphoreSlim _migrationLock = new(1, 1);
     private static bool _isMigrated = false;
 
+    /// <summary>
+    /// Gets the approved test connection string through the safety guard.
+    /// Throws PostgreSqlTestSafetyException if opt-in is missing, connection string is missing,
+    /// or safety validation fails.
+    /// </summary>
+    public static string ConnectionString => GetConnectionString();
+
+    /// <summary>
+    /// Retrieves the approved test connection string via PostgreSqlTestSafetyGuard.
+    /// </summary>
+    public static string GetConnectionString()
+    {
+        return PostgreSqlTestSafetyGuard.GetApprovedConnectionString();
+    }
+
+    /// <summary>
+    /// Creates DbContextOptions configured with the approved, validated test connection string.
+    /// </summary>
     public static DbContextOptions<AppDbContext> CreateOptions()
     {
+        var connectionString = GetConnectionString();
         return new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(ConnectionString)
+            .UseNpgsql(connectionString)
             .Options;
     }
 
     /// <summary>
-    /// Checks connectivity to the isolated PostgreSQL test database and safely applies
-    /// all pending EF Core migrations before test execution. Thread-safe and non-destructive.
+    /// Checks connectivity to the isolated PostgreSQL test database, validates engine identity
+    /// (SELECT current_database()), and applies all pending EF Core migrations before test execution.
+    /// Thread-safe and non-destructive.
+    /// Throws PostgreSqlTestSafetyException or InvalidOperationException if preconditions fail
+    /// (never silently skips execution).
     /// </summary>
-    /// <returns>True if connected and migrated successfully; false if PostgreSQL is unreachable.</returns>
     public static async Task<bool> EnsureMigratedAsync(AppDbContext db)
     {
+        // 1. Fail-fast validation of opt-in and connection string
+        PostgreSqlTestSafetyGuard.AssertExecutionAllowed();
+        var connectionString = GetConnectionString();
+        PostgreSqlTestSafetyGuard.ValidateConnectionString(connectionString);
+
+        // 2. Connectivity check
         if (!await db.Database.CanConnectAsync())
         {
-            return false;
+            throw new InvalidOperationException(
+                $"PostgreSQL test database '{PostgreSqlTestSafetyGuard.ApprovedDatabaseName}' is unreachable. " +
+                "Ensure the local test PostgreSQL instance is running on port 5432 and accepting connections.");
         }
+
+        // 3. Engine-level identity validation (SELECT current_database())
+        var rawConn = db.Database.GetDbConnection();
+        await PostgreSqlTestSafetyGuard.ValidateConnectedDatabaseAsync(rawConn, PostgreSqlTestSafetyGuard.ApprovedDatabaseName);
 
         if (_isMigrated)
         {
@@ -52,5 +89,13 @@ public static class PostgreSqlTestDatabase
         {
             _migrationLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Resets the migration lock state for testing purposes.
+    /// </summary>
+    public static void ResetMigrationStateForTesting()
+    {
+        _isMigrated = false;
     }
 }
