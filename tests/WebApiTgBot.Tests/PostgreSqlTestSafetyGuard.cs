@@ -29,11 +29,14 @@ public class PostgreSqlTestSafetyException : Exception
 public static class PostgreSqlTestSafetyGuard
 {
     public const string ApprovedDatabaseName = "webapitgbot_test";
+    public const string ApprovedDatabaseUser = "gogaa_test_runner";
+    public const int ApprovedPort = 5433;
+    public const int ProhibitedDevelopmentPort = 5432;
     public const string OptInEnvironmentVariable = "GOGAA_ENABLE_POSTGRES_TESTS";
     public const string ConnectionStringEnvironmentVariable = "GOGAA_TEST_POSTGRES_CONNECTION";
 
     public static readonly string[] ApprovedHosts = { "localhost", "127.0.0.1", "::1" };
-    public static readonly int[] ApprovedPorts = { 5432, 5433 };
+    public static readonly int[] ApprovedPorts = { ApprovedPort };
 
     public static readonly string[] ProhibitedDatabaseNames =
     {
@@ -45,6 +48,15 @@ public static class PostgreSqlTestSafetyGuard
         "template0",
         "template1",
         "master"
+    };
+
+    public static readonly string[] ProhibitedDatabaseUsers =
+    {
+        "webapitgbot",
+        "postgres",
+        "root",
+        "admin",
+        "administrator"
     };
 
     public static readonly string[] ProhibitedSubstrings =
@@ -144,6 +156,7 @@ public static class PostgreSqlTestSafetyGuard
         // 2. Validate parsed builder properties
         ValidateRoutingAndResolutionParameters(builder);
         ValidateDatabaseName(builder.Database);
+        ValidateDatabaseUser(builder.Username);
         ValidateHost(builder.Host);
         ValidatePort(builder.Port);
     }
@@ -245,6 +258,35 @@ public static class PostgreSqlTestSafetyGuard
     }
 
     /// <summary>
+    /// Validates the database username in the connection string.
+    /// Strictly requires 'gogaa_test_runner' and rejects development user 'webapitgbot',
+    /// superuser 'postgres', and any unauthorized role.
+    /// </summary>
+    public static void ValidateDatabaseUser(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            throw new PostgreSqlTestSafetyException("SAFETY VIOLATION: Database username is missing from the test connection string.");
+        }
+
+        var normalized = username.Trim();
+
+        if (ProhibitedDatabaseUsers.Any(u => string.Equals(u, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new PostgreSqlTestSafetyException(
+                $"SAFETY VIOLATION: Target database user '{normalized}' is strictly prohibited. " +
+                $"Tests must NEVER connect using development, superuser, or administrative roles.");
+        }
+
+        if (!string.Equals(normalized, ApprovedDatabaseUser, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PostgreSqlTestSafetyException(
+                $"SAFETY VIOLATION: Database user '{normalized}' is not the approved test runner role. " +
+                $"Only '{ApprovedDatabaseUser}' is permitted.");
+        }
+    }
+
+    /// <summary>
     /// Validates that the database host is restricted to approved local targets.
     /// Strictly rejects remote hostnames, cloud IPs, unauthorized domains, multi-host lists, or path-based sockets.
     /// </summary>
@@ -272,14 +314,22 @@ public static class PostgreSqlTestSafetyGuard
     }
 
     /// <summary>
-    /// Validates that the database port matches approved local PostgreSQL test ports.
+    /// Validates that the database port matches the approved isolated test port (5433).
+    /// Accidental targeting of development port 5432 is explicitly caught and failed closed.
     /// </summary>
     public static void ValidatePort(int port)
     {
+        if (port == ProhibitedDevelopmentPort)
+        {
+            throw new PostgreSqlTestSafetyException(
+                $"SAFETY VIOLATION: Database port {port} is the development PostgreSQL port. " +
+                $"Tests must NEVER target the development database instance. Tests must use isolated test port {ApprovedPort}.");
+        }
+
         if (!ApprovedPorts.Contains(port))
         {
             throw new PostgreSqlTestSafetyException(
-                $"SAFETY VIOLATION: Database port {port} is not in the approved test port range ({string.Join(", ", ApprovedPorts)}).");
+                $"SAFETY VIOLATION: Database port {port} is not the approved isolated test port ({string.Join(", ", ApprovedPorts)}).");
         }
     }
 
@@ -318,10 +368,41 @@ public static class PostgreSqlTestSafetyGuard
     }
 
     /// <summary>
+    /// Validates that the database user reported by the database engine matches the approved test runner identity.
+    /// Used during pre-flight checks before migrations or mutations.
+    /// </summary>
+    public static void ValidateActualDatabaseUser(string? actualDatabaseUser, string expectedDatabaseUser)
+    {
+        if (string.IsNullOrWhiteSpace(actualDatabaseUser))
+        {
+            throw new PostgreSqlTestSafetyException("SAFETY VIOLATION: Database engine reported an empty or null user identity.");
+        }
+
+        var normalized = actualDatabaseUser.Trim();
+
+        // Enforce prohibited list check on actual reported user
+        if (ProhibitedDatabaseUsers.Any(u => string.Equals(u, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new PostgreSqlTestSafetyException(
+                $"SAFETY VIOLATION: Database engine reported connected user '{normalized}', which is strictly prohibited.");
+        }
+
+        if (!string.Equals(normalized, expectedDatabaseUser, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PostgreSqlTestSafetyException(
+                $"SAFETY VIOLATION: Database engine reported connected user '{normalized}', but expected test role is '{expectedDatabaseUser}'. " +
+                $"Aborting all test operations to protect database integrity.");
+        }
+    }
+
+    /// <summary>
     /// Connects to PostgreSQL and verifies the actual database identity via 'SELECT current_database(), current_user;'.
     /// Must be executed before any migration or test mutation.
     /// </summary>
-    public static async Task ValidateConnectedDatabaseAsync(DbConnection connection, string expectedDatabaseName)
+    public static async Task ValidateConnectedDatabaseAsync(
+        DbConnection connection,
+        string expectedDatabaseName = ApprovedDatabaseName,
+        string expectedDatabaseUser = ApprovedDatabaseUser)
     {
         if (connection == null)
         {
@@ -346,11 +427,7 @@ public static class PostgreSqlTestSafetyGuard
         var actualUser = reader.GetString(1);
 
         ValidateActualDatabaseName(actualDb, expectedDatabaseName);
-
-        if (string.IsNullOrWhiteSpace(actualUser))
-        {
-            throw new PostgreSqlTestSafetyException("SAFETY VIOLATION: Database engine returned an empty user identity.");
-        }
+        ValidateActualDatabaseUser(actualUser, expectedDatabaseUser);
     }
 
     /// <summary>

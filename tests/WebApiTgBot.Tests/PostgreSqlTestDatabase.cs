@@ -63,12 +63,15 @@ public static class PostgreSqlTestDatabase
         {
             throw new InvalidOperationException(
                 $"PostgreSQL test database '{PostgreSqlTestSafetyGuard.ApprovedDatabaseName}' is unreachable. " +
-                "Ensure the local test PostgreSQL instance is running on port 5432 and accepting connections.");
+                $"Ensure the isolated local test PostgreSQL instance is running on port {PostgreSqlTestSafetyGuard.ApprovedPort} and accepting connections.");
         }
 
-        // 3. Engine-level identity validation (SELECT current_database())
+        // 3. Engine-level identity validation (SELECT current_database(), current_user)
         var rawConn = db.Database.GetDbConnection();
-        await PostgreSqlTestSafetyGuard.ValidateConnectedDatabaseAsync(rawConn, PostgreSqlTestSafetyGuard.ApprovedDatabaseName);
+        await PostgreSqlTestSafetyGuard.ValidateConnectedDatabaseAsync(
+            rawConn,
+            PostgreSqlTestSafetyGuard.ApprovedDatabaseName,
+            PostgreSqlTestSafetyGuard.ApprovedDatabaseUser);
 
         if (_isMigrated)
         {

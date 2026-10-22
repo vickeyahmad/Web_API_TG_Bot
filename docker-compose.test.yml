@@ -1,0 +1,66 @@
+# Docker Compose configuration for the ISOLATED PostgreSQL integration test environment.
+# Dedicated to Milestone 6B-6E3C2 test execution.
+#
+# CRITICAL SAFETY & ISOLATION PROPERTIES:
+# 1. Unique project name ('gogaabyte-test') isolates this stack from the development stack.
+# 2. Container name 'webapitgbot_test_db' is completely distinct from development 'webapitgbot_db'.
+# 3. Host port 5433 is used exclusively (127.0.0.1:5433:5432). Development uses port 5432.
+# 4. Container initialization superuser is 'postgres'. It runs bootstrap script
+#    'docker/test-init/01-init-test-db.sh' to create the test database and the restricted role.
+# 5. Dedicated test runtime role 'gogaa_test_runner' is created with:
+#    LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, NOBYPASSRLS.
+#    It is strictly a non-superuser with ownership restricted to 'webapitgbot_test'.
+# 6. Named volume 'postgres_test_data' is physically distinct from development 'postgres_data'.
+# 7. Dedicated bridge network 'test_network' is isolated from development Docker networks.
+# 8. No default password is provided: Both GOGAA_TEST_ADMIN_PASSWORD and
+#    GOGAA_TEST_POSTGRES_PASSWORD must be supplied at runtime. Docker Compose will
+#    refuse to start if either environment variable is missing or empty.
+#
+# DO NOT START THIS CONTAINER WITHOUT EXPLICIT OPERATOR AUTHORIZATION.
+#
+# Future Authorized Usage:
+#   $env:GOGAA_TEST_ADMIN_PASSWORD = "YourSecureBootstrapPasswordHere"
+#   $env:GOGAA_TEST_POSTGRES_PASSWORD = "YourSecureTestRunnerPasswordHere"
+#   docker compose -f docker-compose.test.yml up -d
+#   docker compose -f docker-compose.test.yml down   (non-destructive shutdown)
+
+name: gogaabyte-test
+
+services:
+  test_db:
+    image: postgres:17-alpine
+    container_name: webapitgbot_test_db
+    restart: "no"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${GOGAA_TEST_ADMIN_PASSWORD:?ERROR: GOGAA_TEST_ADMIN_PASSWORD environment variable must be set for test container bootstrap superuser.}
+      GOGAA_TEST_POSTGRES_PASSWORD: ${GOGAA_TEST_POSTGRES_PASSWORD:?ERROR: GOGAA_TEST_POSTGRES_PASSWORD environment variable must be set for test runner user.}
+    ports:
+      # Exposes test PostgreSQL on localhost port 5433 only — strictly isolated from development port 5432
+      - "127.0.0.1:5433:5432"
+    volumes:
+      # Dedicated named volume strictly isolated from development postgres_data
+      - postgres_test_data:/var/lib/postgresql/data
+      # Mount initialization script to bootstrap least-privilege gogaa_test_runner role
+      - ./docker/test-init/01-init-test-db.sh:/docker-entrypoint-initdb.d/01-init-test-db.sh:ro
+    networks:
+      - test_network
+    healthcheck:
+      # Verifies that PostgreSQL engine is accepting connections.
+      # Note: pg_isready verifies server socket availability only; authenticated role
+      # verification (gogaa_test_runner) is performed by the test suite preflight check.
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+networks:
+  test_network:
+    driver: bridge
+
+volumes:
+  # Dedicated named volume for disposable test data.
+  postgres_test_data:
+    driver: local

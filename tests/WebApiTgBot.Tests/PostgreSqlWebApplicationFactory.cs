@@ -100,7 +100,7 @@ public class PostgreSqlWebApplicationFactory : WebApplicationFactory<Program>
     /// Executes pre-flight engine-level validation and ensures migrations are applied safely.
     /// Verifies:
     /// 1. Opt-in authorization (GOGAA_ENABLE_POSTGRES_TESTS=true).
-    /// 2. Connection string safety (webapitgbot_test on localhost:5432).
+    /// 2. Connection string safety (webapitgbot_test with gogaa_test_runner on localhost:5433).
     /// 3. Connectivity check.
     /// 4. Live engine validation via 'SELECT current_database(), current_user;'.
     /// 5. Safe idempotent migration via PostgreSqlTestDatabase.

@@ -80,7 +80,7 @@ public class PostgreSqlTestSafetyGuardTests
     [Fact]
     public void RemoteDatabaseHost_IsStrictlyRejected()
     {
-        var remoteConnStr = "Host=remote.rds.amazonaws.com;Port=5432;Database=webapitgbot_test;Username=testuser;Password=SamplePassword123!";
+        var remoteConnStr = "Host=remote.rds.amazonaws.com;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=SamplePassword123!";
 
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(remoteConnStr));
@@ -92,19 +92,19 @@ public class PostgreSqlTestSafetyGuardTests
     [Fact]
     public void UnapprovedDatabasePort_IsStrictlyRejected()
     {
-        var badPortConnStr = "Host=localhost;Port=9999;Database=webapitgbot_test;Username=testuser;Password=SamplePassword123!";
+        var badPortConnStr = "Host=localhost;Port=9999;Database=webapitgbot_test;Username=gogaa_test_runner;Password=SamplePassword123!";
 
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(badPortConnStr));
 
-        Assert.Contains("Database port 9999 is not in the approved test port range", ex.Message);
+        Assert.Contains("Database port 9999 is not the approved isolated test port", ex.Message);
     }
 
     // 6. Approved test database identity accepted in configuration validation
     [Theory]
-    [InlineData("Host=localhost;Port=5432;Database=webapitgbot_test;Username=testuser;Password=SamplePassword123!")]
-    [InlineData("Host=127.0.0.1;Port=5432;Database=webapitgbot_test;Username=testuser;Password=SamplePassword123!")]
-    [InlineData("Host=::1;Port=5432;Database=webapitgbot_test;Username=testuser;Password=SamplePassword123!")]
+    [InlineData("Host=localhost;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=SamplePassword123!")]
+    [InlineData("Host=127.0.0.1;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=SamplePassword123!")]
+    [InlineData("Host=::1;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=SamplePassword123!")]
     public void ApprovedTestDatabaseIdentity_IsAccepted(string approvedConnStr)
     {
         // Must succeed without throwing
@@ -153,7 +153,7 @@ public class PostgreSqlTestSafetyGuardTests
     public void Credentials_NeverAppearInSafeErrorMessages()
     {
         const string secretPassword = "SuperConfidentialPassword987!";
-        var invalidConnStr = $"Host=localhost;Port=5432;Database=webapitgbot_dev;Username=testuser;Password={secretPassword}";
+        var invalidConnStr = $"Host=localhost;Port=5433;Database=webapitgbot_dev;Username=gogaa_test_runner;Password={secretPassword}";
 
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(invalidConnStr));
@@ -226,7 +226,7 @@ public class PostgreSqlTestSafetyGuardTests
         {
             Environment.SetEnvironmentVariable(PostgreSqlTestSafetyGuard.OptInEnvironmentVariable, null);
 
-            var validConnStr = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=u;Password=p";
+            var validConnStr = "Host=localhost;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p";
             var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
                 PostgreSqlTestSafetyGuard.AuthorizeAndValidateConnectionString(validConnStr));
 
@@ -427,7 +427,7 @@ public class PostgreSqlTestSafetyGuardTests
     [Fact]
     public void TargetSessionAttributes_RoutingParameter_IsStrictlyRejected()
     {
-        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=u;Password=p;Target Session Attributes=primary";
+        var connStr = "Host=localhost;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p;Target Session Attributes=primary";
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
         Assert.Contains("Target Session Attributes", ex.Message);
@@ -437,7 +437,7 @@ public class PostgreSqlTestSafetyGuardTests
     [Fact]
     public void ServiceParameter_Resolution_IsStrictlyRejected()
     {
-        var connStr = "Service=myservice;Database=webapitgbot_test;Username=u;Password=p";
+        var connStr = "Service=myservice;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p";
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
         Assert.Contains("Service", ex.Message);
@@ -447,7 +447,7 @@ public class PostgreSqlTestSafetyGuardTests
     [Fact]
     public void PassfileParameter_IsStrictlyRejected()
     {
-        var connStr = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=u;Passfile=/path/to/.pgpass";
+        var connStr = "Host=localhost;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Passfile=/path/to/.pgpass";
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
         Assert.Contains("Passfile", ex.Message);
@@ -455,8 +455,8 @@ public class PostgreSqlTestSafetyGuardTests
 
     // 25. Multi-host comma-separated hosts rejected
     [Theory]
-    [InlineData("Host=localhost,remotehost;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
-    [InlineData("Host=localhost,127.0.0.1;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
+    [InlineData("Host=localhost,remotehost;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p")]
+    [InlineData("Host=localhost,127.0.0.1;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p")]
     public void MultiHostConnectionString_IsStrictlyRejected(string multiHostConnStr)
     {
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
@@ -466,13 +466,124 @@ public class PostgreSqlTestSafetyGuardTests
 
     // 26. Path-based / socket hosts rejected
     [Theory]
-    [InlineData("Host=/var/run/postgresql;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
-    [InlineData(@"Host=\\.\pipe\postgresql;Port=5432;Database=webapitgbot_test;Username=u;Password=p")]
+    [InlineData("Host=/var/run/postgresql;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p")]
+    [InlineData(@"Host=\\.\pipe\postgresql;Port=5433;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p")]
     public void PathBasedHost_IsStrictlyRejected(string pathHostConnStr)
     {
         var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
             PostgreSqlTestSafetyGuard.ValidateConnectionString(pathHostConnStr));
         Assert.Contains("Multi-host or path-based database host", ex.Message);
+    }
+
+    // 26b. Development port 5432 is strictly rejected
+    [Fact]
+    public void DevelopmentPort5432_IsStrictlyRejected()
+    {
+        var devPortConnStr = "Host=localhost;Port=5432;Database=webapitgbot_test;Username=gogaa_test_runner;Password=p";
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(devPortConnStr));
+
+        Assert.Contains("Database port 5432 is the development PostgreSQL port", ex.Message);
+        Assert.Contains("Tests must NEVER target the development database instance", ex.Message);
+    }
+
+    [Fact]
+    public void ValidatePort_WhenDevelopmentPort5432_ThrowsDedicatedSafetyException()
+    {
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidatePort(5432));
+
+        Assert.Contains("development PostgreSQL port", ex.Message);
+    }
+
+    // 26c. Database user validation: Prohibited development user webapitgbot is strictly rejected
+    [Theory]
+    [InlineData("webapitgbot")]
+    [InlineData("postgres")]
+    [InlineData("root")]
+    [InlineData("admin")]
+    [InlineData("administrator")]
+    public void ProhibitedDatabaseUsers_AreStrictlyRejected(string prohibitedUser)
+    {
+        var connStr = $"Host=localhost;Port=5433;Database=webapitgbot_test;Username={prohibitedUser};Password=p";
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
+
+        Assert.Contains("is strictly prohibited", ex.Message);
+        Assert.Contains(prohibitedUser, ex.Message);
+    }
+
+    // 26d. Arbitrary unapproved database user is strictly rejected
+    [Theory]
+    [InlineData("testuser")]
+    [InlineData("custom_user")]
+    [InlineData("dev_runner")]
+    [InlineData("qa_user")]
+    public void ArbitraryDatabaseUser_IsStrictlyRejected(string arbitraryUser)
+    {
+        var connStr = $"Host=localhost;Port=5433;Database=webapitgbot_test;Username={arbitraryUser};Password=p";
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateConnectionString(connStr));
+
+        Assert.Contains("is not the approved test runner role", ex.Message);
+        Assert.Contains(PostgreSqlTestSafetyGuard.ApprovedDatabaseUser, ex.Message);
+    }
+
+    // 26e. Missing database username is strictly rejected
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MissingDatabaseUser_IsStrictlyRejected(string? emptyUser)
+    {
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateDatabaseUser(emptyUser));
+
+        Assert.Contains("Database username is missing", ex.Message);
+    }
+
+    // 26f. Approved test runner role is accepted
+    [Fact]
+    public void ApprovedDatabaseUser_IsAccepted()
+    {
+        // Validating the exact approved test runner role must succeed without throwing
+        PostgreSqlTestSafetyGuard.ValidateDatabaseUser("gogaa_test_runner");
+        PostgreSqlTestSafetyGuard.ValidateDatabaseUser("GOGAA_TEST_RUNNER");
+    }
+
+    // 26g. Actual reported database user from engine comparison: prohibited users rejected
+    [Theory]
+    [InlineData("webapitgbot")]
+    [InlineData("postgres")]
+    [InlineData("root")]
+    [InlineData("admin")]
+    public void ActualDatabaseUser_ProhibitedUser_IsStrictlyRejected(string actualUser)
+    {
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateActualDatabaseUser(actualUser, PostgreSqlTestSafetyGuard.ApprovedDatabaseUser));
+
+        Assert.Contains("strictly prohibited", ex.Message);
+    }
+
+    // 26h. Actual reported database user from engine comparison: mismatched user rejected
+    [Theory]
+    [InlineData("other_user")]
+    [InlineData("testuser")]
+    [InlineData("gogaa_dev_runner")]
+    public void ActualDatabaseUser_MismatchedUser_IsStrictlyRejected(string actualUser)
+    {
+        var ex = Assert.Throws<PostgreSqlTestSafetyException>(() =>
+            PostgreSqlTestSafetyGuard.ValidateActualDatabaseUser(actualUser, PostgreSqlTestSafetyGuard.ApprovedDatabaseUser));
+
+        Assert.Contains("expected test role is 'gogaa_test_runner'", ex.Message);
+    }
+
+    // 26i. Actual reported database user from engine comparison: expected role matches
+    [Fact]
+    public void ActualDatabaseUser_ExpectedTestRunner_MatchesSuccessfully()
+    {
+        PostgreSqlTestSafetyGuard.ValidateActualDatabaseUser("gogaa_test_runner", PostgreSqlTestSafetyGuard.ApprovedDatabaseUser);
+        PostgreSqlTestSafetyGuard.ValidateActualDatabaseUser("GOGAA_TEST_RUNNER", PostgreSqlTestSafetyGuard.ApprovedDatabaseUser);
     }
 
     private static bool HasPostgreSqlIntegrationTrait(System.Reflection.MemberInfo member)
